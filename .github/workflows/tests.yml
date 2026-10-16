@@ -11,8 +11,12 @@
 #
 # A browser is ASSERTED before the tests run. The PNG render is real code, and a runner without one
 # would make the suites skip it quietly — a gate that cannot fail is not a gate, so this job
-# refuses to run in that state. The ubuntu runner image ships Google Chrome and Chromium; if that
-# ever changes, this step fails loudly instead of turning the render checks into no-ops.
+# refuses to run in that state. The ubuntu-24.04 runner image ships Google Chrome and Chromium; if
+# a future image does not, this step fails loudly instead of turning the render checks into no-ops.
+#
+# The runner is pinned to ubuntu-24.04 deliberately: `ubuntu-latest` migrates to Ubuntu 26 from
+# 2026-10-19, and the browser assert below is written against the image the checks were verified
+# on. Bump the label on purpose and let the assert report whether the new image still has a browser.
 
 name: tests
 
@@ -27,11 +31,11 @@ permissions:
 
 jobs:
   python_tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Assert a browser is present (the render checks must not skip themselves)
@@ -53,11 +57,11 @@ jobs:
           python tests/test_editor.py
 
   pane_smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Editor syntax, then the pane with a stubbed SDK + React
