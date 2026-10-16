@@ -1,0 +1,159 @@
+{
+ "title": "v1.4 content — tables, text size/bold, split counts",
+ "width": 1000,
+ "height": 700,
+ "grid": 20,
+ "grid_on": true,
+ "grid_style": "lines",
+ "snap": true,
+ "groups": [
+  {
+   "id": "g1",
+   "x": 280,
+   "y": 380,
+   "w": 360,
+   "h": 240,
+   "text": "zone group",
+   "tone": "muted"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "tbl",
+   "x": 60,
+   "y": 60,
+   "w": 0,
+   "h": 0,
+   "text": "",
+   "kind": "table",
+   "tone": "accent",
+   "rows": 3,
+   "cols": 2,
+   "header": true,
+   "cells": [
+    "name",
+    "value",
+    "cpu",
+    "12%",
+    "",
+    "38%"
+   ]
+  },
+  {
+   "id": "tbl2",
+   "x": 400,
+   "y": 60,
+   "w": 0,
+   "h": 0,
+   "text": "",
+   "kind": "table",
+   "tone": "muted",
+   "cells": [
+    "solo"
+   ]
+  },
+  {
+   "id": "big",
+   "x": 60,
+   "y": 260,
+   "w": 200,
+   "h": 70,
+   "text": "Large bold title",
+   "kind": "box",
+   "tone": "ok",
+   "text_size": "large",
+   "bold": true
+  },
+  {
+   "id": "small",
+   "x": 300,
+   "y": 260,
+   "w": 200,
+   "h": 70,
+   "text": "small text here",
+   "kind": "box",
+   "tone": "warn",
+   "text_size": "small"
+  },
+  {
+   "id": "plain",
+   "x": 540,
+   "y": 260,
+   "w": 260,
+   "h": 70,
+   "text": "the default size and weight, unchanged",
+   "kind": "box",
+   "tone": "default"
+  },
+  {
+   "id": "split3",
+   "x": 60,
+   "y": 380,
+   "w": 200,
+   "h": 116,
+   "text": "steps",
+   "kind": "pill",
+   "tone": "default",
+   "parts": [
+    {
+     "text": "one"
+    },
+    {
+     "text": "two"
+    },
+    {
+     "text": "three"
+    }
+   ],
+   "split": "rows"
+  },
+  {
+   "id": "zone",
+   "x": 300,
+   "y": 400,
+   "w": 320,
+   "h": 200,
+   "text": "Runtime zone with a longer title",
+   "kind": "area",
+   "tone": "muted",
+   "text_size": "large"
+  },
+  {
+   "id": "srv",
+   "x": 660,
+   "y": 400,
+   "w": 120,
+   "h": 110,
+   "text": "small caption",
+   "kind": "server",
+   "tone": "ok",
+   "text_size": "small"
+  },
+  {
+   "id": "note-b",
+   "x": 660,
+   "y": 540,
+   "w": 240,
+   "h": 70,
+   "text": "a bold note",
+   "kind": "note",
+   "tone": "accent",
+   "bold": true
+  }
+ ],
+ "edges": [
+  {
+   "from": "tbl",
+   "to": "big",
+   "label": "feeds",
+   "tone": "default"
+  },
+  {
+   "from": "split3",
+   "to": "zone",
+   "to_side": "left",
+   "end": "open",
+   "head_size": "large"
+  }
+ ]
+}

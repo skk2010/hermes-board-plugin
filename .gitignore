@@ -1,0 +1,13 @@
+# Never commit compiled Python — the plugin is loaded from source, and a stale .pyc for a module
+# that changed on disk is a debugging trap on a host you cannot see.
+__pycache__/
+*.py[cod]
+
+# Renders, board files and the edit-watch log live in ~/.hermes/board, never next to the code.
+render/
+boards/
+watch.json
+
+# Test scratch that some tools leave behind.
+*.tmp
+.worktrees/

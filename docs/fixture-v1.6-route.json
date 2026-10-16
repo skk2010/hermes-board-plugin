@@ -1,0 +1,121 @@
+{
+ "title": "route regression (mini-pc)",
+ "width": 700,
+ "height": 400,
+ "grid": 10,
+ "grid_on": false,
+ "groups": [],
+ "notes": [],
+ "nodes": [
+  {
+   "id": "n2-mv3puj6h",
+   "x": 130,
+   "y": 266,
+   "w": 180,
+   "h": 72,
+   "text": "paxsoft llm",
+   "kind": "box",
+   "tone": "accent"
+  },
+  {
+   "id": "n5-mv433bs1",
+   "x": 130,
+   "y": 40,
+   "w": 180,
+   "h": 72,
+   "text": "new box",
+   "kind": "box",
+   "tone": "accent",
+   "split": "columns",
+   "sub": "etwewetw",
+   "parts": [
+    {
+     "text": "11111111111111"
+    },
+    {
+     "text": "222222222222222"
+    }
+   ]
+  },
+  {
+   "id": "n10-mv45ys88",
+   "x": 40,
+   "y": 150,
+   "w": 180,
+   "h": 72,
+   "text": "new box",
+   "kind": "box",
+   "tone": "accent",
+   "parts": [
+    {
+     "text": "1"
+    },
+    {
+     "text": "1"
+    },
+    {
+     "text": "part 3"
+    }
+   ],
+   "split": "columns"
+  },
+  {
+   "id": "n12-mv7y7hi9",
+   "x": 260,
+   "y": 150,
+   "w": 180,
+   "h": 72,
+   "text": "new box",
+   "kind": "table",
+   "tone": "warn",
+   "cells": [
+    {
+     "text": "0",
+     "tone": "danger"
+    },
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+   ],
+   "rows": 3,
+   "cols": 3,
+   "col_widths": [
+    1,
+    1,
+    1
+   ],
+   "header": false,
+   "row_tones": [
+    "muted",
+    "muted",
+    "muted"
+   ],
+   "col_tones": [
+    null,
+    "warn",
+    "muted"
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "n5-mv433bs1",
+   "to": "n2-mv3puj6h",
+   "route": "auto",
+   "style": "solid",
+   "tone": "default"
+  },
+  {
+   "from": "n12-mv7y7hi9",
+   "to": "n2-mv3puj6h",
+   "route": "auto",
+   "style": "solid",
+   "tone": "default"
+  }
+ ]
+}

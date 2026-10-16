@@ -1,0 +1,52 @@
+{
+ "title": "v1.7 anchor points",
+ "width": 1060,
+ "height": 660,
+ "grid": 10,
+ "grid_on": true,
+ "groups": [],
+ "nodes": [
+  {"id": "box-a", "x": 80, "y": 80, "w": 180, "h": 72, "text": "box a", "kind": "box", "tone": "accent"},
+  {"id": "box-b", "x": 420, "y": 80, "w": 180, "h": 72, "text": "box b", "kind": "box", "tone": "accent"},
+  {"id": "box-c", "x": 760, "y": 300, "w": 180, "h": 72, "text": "box c", "kind": "box", "tone": "ok"},
+  {"id": "tbl-1", "x": 760, "y": 80, "w": 180, "h": 72, "text": "table", "kind": "table",
+   "rows": 3, "cols": 3, "header": false, "tone": "warn",
+   "cells": ["0", "1", "2", "3", "4", "5", "6", "7", "8"]}
+ ],
+ "notes": [
+  {"id": "note-1", "x": 420, "y": 470, "w": 300, "h": 60, "text": "a note anchored at 75 %",
+   "kind": "note", "tone": "warn"}
+ ],
+ "lines": [
+  {"id": "line-q25", "points": [[80, 120], [300, 210]],
+   "tone": "accent", "style": "solid", "start": "none", "end": "arrow",
+   "from": {"ref": "box-a", "side": "left", "at": 0.25}},
+
+  {"id": "line-q75", "points": [[700, 500], [420, 520]],
+   "tone": "ok", "style": "solid", "start": "none", "end": "arrow",
+   "to": {"ref": "note-1", "side": "right", "at": 0.75}},
+
+  {"id": "line-auto", "points": [[600, 200], [700, 330]],
+   "tone": "default", "style": "dashed", "start": "circle", "end": "triangle",
+   "from": {"ref": "box-b", "side": "auto", "at": 0.75}},
+
+  {"id": "line-clamp", "points": [[120, 600], [240, 620]],
+   "tone": "muted", "style": "solid", "start": "none", "end": "open",
+   "from": {"ref": "box-a", "side": "bottom", "at": 1.4}},
+
+  {"id": "line-badat", "points": [[520, 600], [580, 620]],
+   "tone": "danger", "style": "dotted", "start": "bar", "end": "none",
+   "to": {"ref": "box-b", "side": "top", "at": "half"}},
+
+  {"id": "line-dangling", "points": [[80, 400], [220, 430]],
+   "tone": "accent", "style": "solid", "start": "none", "end": "arrow",
+   "from": {"ref": "ghost-id", "side": "right", "at": 0.75}}
+ ],
+ "edges": [
+  {"from": "box-a", "to": "box-b", "route": "auto", "style": "solid", "tone": "ok",
+   "from_side": "bottom", "from_at": 0.25, "to_side": "left", "to_at": 0.75},
+
+  {"from": "box-b", "to": "tbl-1", "route": "auto", "style": "solid", "tone": "default",
+   "from_at": 0.75, "to_at": 0.25}
+ ]
+}

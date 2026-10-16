@@ -1,0 +1,31 @@
+name: hermes-board
+label: Board
+kind: standalone
+version: 1.8.3
+author: Konstantin Sukhov
+license: MIT
+homepage: https://github.com/skk2010/hermes-board-plugin
+description: >
+  A Miro-like board the agent draws with its own tools and the user edits in a desktop pane.
+  A board is a JSON document on disk: board_apply builds it from ordered ops (including layered
+  auto-layout and shared-trunk buses between bands), board_render produces a PNG for chat or the
+  interactive HTML editor, and the desktop pane shows the same board next to the conversation and
+  saves the user's edits back. Storage needs no database; the renderer comes from the
+  'chat-charts' skill (set HERMES_BOARDKIT to point elsewhere). PNG rendering and the editor's
+  self-test run a headless Chrome/Chromium already on PATH; the HTML editor needs no browser.
+tags: [desktop, board, diagram, canvas, visualization, whiteboard]
+requires_hermes: ">=0.21"
+provides_tools:
+  - board_list
+  - board_get
+  - board_new
+  - board_delete
+  - board_apply
+  - board_render
+  - board_watch
+provides_hooks: []
+optional_env:
+  - HERMES_BOARD_DIR
+  - HERMES_BOARD_RENDER_DIR
+  - HERMES_BOARD_WATCH
+  - HERMES_BOARDKIT

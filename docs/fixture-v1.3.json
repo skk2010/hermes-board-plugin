@@ -1,0 +1,175 @@
+{
+ "title": "v1.3 edges — attach sides and head sizes",
+ "width": 900,
+ "height": 620,
+ "grid": 20,
+ "grid_on": true,
+ "grid_style": "lines",
+ "snap": true,
+ "groups": [],
+ "nodes": [
+  {
+   "id": "a",
+   "x": 60,
+   "y": 60,
+   "w": 150,
+   "h": 80,
+   "text": "queue",
+   "kind": "cloud",
+   "tone": "accent"
+  },
+  {
+   "id": "b",
+   "x": 380,
+   "y": 60,
+   "w": 150,
+   "h": 80,
+   "text": "worker",
+   "kind": "box",
+   "tone": "default"
+  },
+  {
+   "id": "c",
+   "x": 700,
+   "y": 60,
+   "w": 140,
+   "h": 110,
+   "text": "api",
+   "kind": "server",
+   "tone": "ok"
+  },
+  {
+   "id": "d",
+   "x": 380,
+   "y": 300,
+   "w": 150,
+   "h": 110,
+   "text": "store",
+   "kind": "cylinder",
+   "tone": "warn"
+  },
+  {
+   "id": "e",
+   "x": 60,
+   "y": 300,
+   "w": 150,
+   "h": 80,
+   "text": "gate",
+   "kind": "diamond",
+   "tone": "muted"
+  },
+  {
+   "id": "f",
+   "x": 700,
+   "y": 300,
+   "w": 160,
+   "h": 116,
+   "text": "split",
+   "kind": "box",
+   "tone": "default",
+   "parts": [
+    {
+     "text": "left"
+    },
+    {
+     "text": "right"
+    }
+   ],
+   "split": "columns"
+  }
+ ],
+ "edges": [
+  {
+   "from": "a",
+   "to": "b",
+   "from_side": "top",
+   "to_side": "bottom",
+   "route": "h",
+   "label": "t→b"
+  },
+  {
+   "from": "b",
+   "to": "c",
+   "from_side": "bottom",
+   "to_side": "top",
+   "route": "v",
+   "label": "b→t"
+  },
+  {
+   "from": "c",
+   "to": "f",
+   "to_side": "top",
+   "label": "auto→top"
+  },
+  {
+   "from": "d",
+   "to": "e",
+   "from_side": "left",
+   "route": "h",
+   "label": "l→auto"
+  },
+  {
+   "from": "e",
+   "to": "a",
+   "from_side": "top",
+   "to_side": "left",
+   "head_size": "large",
+   "end": "open",
+   "start": "circle",
+   "label": "large"
+  },
+  {
+   "from": "a",
+   "to": "d",
+   "head_size": "small",
+   "to_side": "left",
+   "route": "straight",
+   "end": "diamond",
+   "label": "small"
+  },
+  {
+   "from": "b",
+   "to": "d",
+   "head_size": "medium",
+   "from_side": "bottom",
+   "to_side": "top",
+   "end": "triangle",
+   "label": "medium"
+  },
+  {
+   "from": "f",
+   "to": "d",
+   "head_size": "huge",
+   "from_side": "middle",
+   "label": "unknown"
+  },
+  {
+   "from": "e",
+   "to": "f",
+   "from_side": "right",
+   "waypoints": [
+    [
+     380,
+     520
+    ],
+    [
+     700,
+     520
+    ]
+   ],
+   "label": "via waypoints"
+  }
+ ],
+ "notes": [
+  {
+   "id": "note-13",
+   "x": 60,
+   "y": 460,
+   "w": 300,
+   "h": 60,
+   "text": "explicit sides anchor at the side midpoint",
+   "kind": "note",
+   "tone": "accent"
+  }
+ ]
+}

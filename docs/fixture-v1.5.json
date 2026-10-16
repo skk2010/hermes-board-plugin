@@ -1,0 +1,191 @@
+{
+  "title": "v1.5 — panel controls and table v2 (widths, alignment, colour)",
+  "width": 1100,
+  "height": 780,
+  "grid": 20,
+  "grid_on": true,
+  "grid_style": "lines",
+  "snap": true,
+  "nodes": [
+    {
+      "id": "t2",
+      "x": 60,
+      "y": 60,
+      "w": 0,
+      "h": 0,
+      "text": "",
+      "kind": "table",
+      "tone": "default",
+      "rows": 3,
+      "cols": 2,
+      "header": true,
+      "col_widths": [
+        2,
+        1
+      ],
+      "row_tones": [
+        null,
+        "muted",
+        null
+      ],
+      "col_tones": [
+        null,
+        "accent"
+      ],
+      "cells": [
+        "name",
+        "value",
+        "cpu",
+        "12%",
+        "",
+        {
+          "text": "38%",
+          "tone": "warn",
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "x": 460,
+      "y": 60,
+      "w": 0,
+      "h": 0,
+      "text": "",
+      "kind": "table",
+      "tone": "default",
+      "rows": 2,
+      "cols": 3,
+      "col_widths": [
+        1,
+        2,
+        1
+      ],
+      "cells": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ]
+    },
+    {
+      "id": "t1",
+      "x": 60,
+      "y": 300,
+      "w": 0,
+      "h": 0,
+      "text": "",
+      "kind": "table",
+      "tone": "muted",
+      "cells": [
+        "solo"
+      ]
+    },
+    {
+      "id": "big",
+      "x": 60,
+      "y": 460,
+      "w": 220,
+      "h": 72,
+      "text": "Large bold title",
+      "kind": "box",
+      "tone": "ok",
+      "text_size": "large",
+      "bold": true
+    },
+    {
+      "id": "small",
+      "x": 320,
+      "y": 460,
+      "w": 180,
+      "h": 72,
+      "text": "small text",
+      "kind": "box",
+      "tone": "warn",
+      "text_size": "small"
+    },
+    {
+      "id": "split3",
+      "x": 60,
+      "y": 570,
+      "w": 220,
+      "h": 116,
+      "text": "steps",
+      "kind": "pill",
+      "tone": "default",
+      "parts": [
+        {
+          "text": "one"
+        },
+        {
+          "text": "two"
+        },
+        {
+          "text": "three"
+        }
+      ],
+      "split": "rows"
+    },
+    {
+      "id": "zone",
+      "x": 340,
+      "y": 560,
+      "w": 300,
+      "h": 160,
+      "text": "Zone title",
+      "kind": "area",
+      "tone": "muted",
+      "text_size": "large"
+    },
+    {
+      "id": "srv",
+      "x": 700,
+      "y": 560,
+      "w": 120,
+      "h": 110,
+      "text": "tiny",
+      "kind": "server",
+      "tone": "ok",
+      "text_size": "small"
+    },
+    {
+      "id": "note-b",
+      "x": 700,
+      "y": 700,
+      "w": 240,
+      "h": 64,
+      "text": "a bold note",
+      "kind": "note",
+      "tone": "accent",
+      "bold": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "t2",
+      "to": "big",
+      "label": "feeds",
+      "tone": "default"
+    },
+    {
+      "from": "t3",
+      "to": "small",
+      "to_side": "top",
+      "end": "diamond",
+      "head_size": "small"
+    }
+  ],
+  "groups": [
+    {
+      "id": "g1",
+      "x": 320,
+      "y": 540,
+      "w": 340,
+      "h": 200,
+      "text": "zone group",
+      "tone": "muted"
+    }
+  ]
+}

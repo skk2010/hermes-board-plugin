@@ -1,0 +1,29 @@
+{
+ "base_commit": "dd210a10047f136f5c2d667c376559e5b1aad9d8",
+ "fixtures": {
+  "fixture-v1.2.json": {
+   "editor_bytes": 20899,
+   "editor_sha256": "e4d7e8e24997a1e47894318eaded7a9fd0ad9b7adc4c2b1cae5f5e5de9c8e1e8",
+   "python_bytes": 19504,
+   "python_sha256": "024c37e4f38344050e2bc659af2c4b7cbc7c0081b4ac0bb144577d662599355f"
+  },
+  "fixture-v1.3.json": {
+   "editor_bytes": 17611,
+   "editor_sha256": "bfffa62dc92cb6706986da7379cdd1982aa701dd7cce996898558eb67e99c955",
+   "python_bytes": 16614,
+   "python_sha256": "18c4ed9a755ff147e702b2514c5643cadbb5baa3c341c9144b276263a774b5e3"
+  },
+  "fixture-v1.4.json": {
+   "editor_bytes": 16414,
+   "editor_sha256": "c069c43839fc9f1f6972c0fd22ce15bff705fcbf7f2d133d9cc9e729094c60ca",
+   "python_bytes": 15673,
+   "python_sha256": "2ff3fb90ba9a421e309cbdcea8ae5a9cd0cf38b0c86ade1e3b9ecc4b8cdb5921"
+  },
+  "fixture-v1.5.json": {
+   "editor_bytes": 17380,
+   "editor_sha256": "6b74d3500621a4224b6dd8a4d725baee805ff36b0fbcd3a023a0e592d5f0b582",
+   "python_bytes": 16597,
+   "python_sha256": "3688c5453f6dbbf066acad6b098fcc88e3ac4e640f992af697efef5c35edfdb6"
+  }
+ }
+}

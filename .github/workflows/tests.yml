@@ -1,0 +1,66 @@
+# Gate for the hermes-board plugin: exactly the suites the README tells a human to run, on every
+# pull request and every push to main.
+#
+# Why there is no Hermes install here: `hermes plugins validate` / `doctor` are the authoritative
+# manifest and registration gates, but they need the whole app on the runner, and the suites below
+# already cover what can be checked without it — registration against a stub context, op
+# application, layout geometry, the HTTP namespace over a real ASGI app, the desktop module with
+# stubbed SDK + React, and the parity between the Python renderer and the inlined editor. Run the
+# two CLI gates locally before a push; add a job for them here only if you are willing to pay for
+# the install on every run.
+#
+# A browser is ASSERTED before the tests run. The PNG render is real code, and a runner without one
+# would make the suites skip it quietly — a gate that cannot fail is not a gate, so this job
+# refuses to run in that state. The ubuntu runner image ships Google Chrome and Chromium; if that
+# ever changes, this step fails loudly instead of turning the render checks into no-ops.
+
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Assert a browser is present (the render checks must not skip themselves)
+        run: |
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$browser" ]; then
+            echo "::error::no Chrome/Chromium on PATH — the PNG and cross-renderer checks would skip themselves"
+            exit 1
+          fi
+          echo "using $browser"
+      - name: Install FastAPI (test_api.py drives a live ASGI app)
+        run: pip install --quiet --disable-pip-version-check fastapi
+      - name: Suites
+        run: |
+          python tests/test_tools.py
+          python tests/test_api.py
+          python tests/test_vendor.py
+          python tests/test_render.py
+          python tests/test_editor.py
+
+  pane_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Editor syntax, then the pane with a stubbed SDK + React
+        run: |
+          node --check vendor/board_editor.js
+          node tests/pane_smoke.mjs

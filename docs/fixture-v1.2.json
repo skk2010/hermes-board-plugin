@@ -1,0 +1,257 @@
+{
+ "title": "v1.2 primitives — parity fixture",
+ "width": 900,
+ "height": 700,
+ "grid": 20,
+ "grid_on": true,
+ "grid_style": "dots",
+ "snap": true,
+ "groups": [
+  {
+   "id": "g1",
+   "x": 660,
+   "y": 300,
+   "w": 200,
+   "h": 170,
+   "text": "split boxes",
+   "tone": "muted"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "cloud",
+   "x": 40,
+   "y": 40,
+   "w": 190,
+   "h": 90,
+   "text": "Cloud service",
+   "kind": "cloud",
+   "tone": "accent"
+  },
+  {
+   "id": "cyl",
+   "x": 270,
+   "y": 40,
+   "w": 150,
+   "h": 100,
+   "text": "Orders DB",
+   "kind": "cylinder",
+   "tone": "ok"
+  },
+  {
+   "id": "doc",
+   "x": 460,
+   "y": 40,
+   "w": 170,
+   "h": 90,
+   "text": "Spec document",
+   "kind": "document",
+   "tone": "warn"
+  },
+  {
+   "id": "hex",
+   "x": 670,
+   "y": 40,
+   "w": 150,
+   "h": 90,
+   "text": "Gateway",
+   "kind": "hexagon",
+   "tone": "default"
+  },
+  {
+   "id": "para",
+   "x": 40,
+   "y": 170,
+   "w": 170,
+   "h": 80,
+   "text": "Batch input",
+   "kind": "parallelogram",
+   "tone": "default"
+  },
+  {
+   "id": "srv",
+   "x": 250,
+   "y": 170,
+   "w": 120,
+   "h": 110,
+   "text": "api-1",
+   "kind": "server",
+   "tone": "accent"
+  },
+  {
+   "id": "pc",
+   "x": 400,
+   "y": 170,
+   "w": 140,
+   "h": 110,
+   "text": "Operator",
+   "kind": "computer",
+   "tone": "default",
+   "sub": "ignored for icon kinds"
+  },
+  {
+   "id": "actor",
+   "x": 570,
+   "y": 170,
+   "w": 110,
+   "h": 110,
+   "text": "User",
+   "kind": "actor",
+   "tone": "ok"
+  },
+  {
+   "id": "area",
+   "x": 40,
+   "y": 300,
+   "w": 420,
+   "h": 170,
+   "text": "Runtime zone",
+   "kind": "area",
+   "tone": "muted"
+  },
+  {
+   "id": "lefty",
+   "x": 60,
+   "y": 340,
+   "w": 180,
+   "h": 72,
+   "text": "left aligned body text that wraps",
+   "kind": "box",
+   "tone": "default",
+   "align": "left"
+  },
+  {
+   "id": "splitrows",
+   "x": 260,
+   "y": 340,
+   "w": 180,
+   "h": 110,
+   "text": "",
+   "kind": "box",
+   "tone": "default",
+   "parts": [
+    {
+     "text": "parse",
+     "sub": "5 ms"
+    },
+    {
+     "text": "rank"
+    },
+    {
+     "text": "render"
+    }
+   ],
+   "split": "rows"
+  },
+  {
+   "id": "splitcols",
+   "x": 700,
+   "y": 340,
+   "w": 160,
+   "h": 110,
+   "text": "2 columns",
+   "kind": "box",
+   "tone": "accent",
+   "parts": [
+    "west",
+    "east"
+   ],
+   "split": "columns"
+  },
+  {
+   "id": "cap",
+   "x": 700,
+   "y": 610,
+   "w": 200,
+   "h": 40,
+   "text": "a caption, no box",
+   "kind": "caption",
+   "tone": "muted"
+  }
+ ],
+ "edges": [
+  {
+   "from": "cloud",
+   "to": "cyl",
+   "label": "writes",
+   "style": "solid",
+   "route": "auto",
+   "start": "none",
+   "end": "arrow"
+  },
+  {
+   "from": "cyl",
+   "to": "doc",
+   "start": "none",
+   "end": "open"
+  },
+  {
+   "from": "doc",
+   "to": "hex",
+   "style": "dashed",
+   "route": "auto",
+   "start": "none",
+   "end": "triangle"
+  },
+  {
+   "from": "hex",
+   "to": "para",
+   "start": "bar",
+   "end": "diamond"
+  },
+  {
+   "from": "para",
+   "to": "srv",
+   "start": "circle",
+   "end": "circle"
+  },
+  {
+   "from": "srv",
+   "to": "pc",
+   "bidir": true
+  },
+  {
+   "from": "pc",
+   "to": "actor",
+   "start": "none",
+   "end": "none"
+  },
+  {
+   "from": "lefty",
+   "to": "splitrows",
+   "start": "arrow",
+   "end": "bar",
+   "label": "fans out"
+  },
+  {
+   "from": "splitrows",
+   "to": "splitcols",
+   "start": "open",
+   "end": "arrow",
+   "label_at": "last",
+   "label": "cells"
+  }
+ ],
+ "notes": [
+  {
+   "id": "note-1",
+   "x": 40,
+   "y": 600,
+   "w": 300,
+   "h": 74,
+   "text": "R&D note: heads are per-end, not a flag",
+   "kind": "note",
+   "tone": "warn"
+  },
+  {
+   "id": "note-2",
+   "x": 380,
+   "y": 600,
+   "w": 280,
+   "h": 74,
+   "text": "grid 20px, dots, snapping on",
+   "kind": "note",
+   "tone": "accent"
+  }
+ ]
+}
