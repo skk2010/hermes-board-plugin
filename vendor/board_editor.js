@@ -93,6 +93,10 @@
   var panDrag = null;           // W1.4: middle-drag / space+left-drag pan
   var marquee = null;           // W2.2: the rubber band, in document coordinates
   var spaceDown = false;        // W1.4
+  /* L5 (v1.9): Shift is tracked like spaceDown (keydown/keyup/blur), because the anchor overlay
+   * is gated on it and draws on renders no pointer event caused (a keypress alone must be able
+   * to show it). The ANGLE reads evt.shiftKey per placement, the COMMIT reads it per commit. */
+  var shiftDown = false;
   var clipboard = null;         // W2.4: in-editor only — the system clipboard is never touched
   var view = { x: 0, y: 0, k: 1 };   // W1.1: in memory only — never saved, never in the document
   var pending = false;
@@ -1185,11 +1189,13 @@
    * (squares; one dot per candidate), the candidate the pointer WOULD take ringed (4px). Sizes
    * are SCREEN-space (divided by the rendered scale). Editor chrome only: the overlay never
    * enters the model, the history, the exported document or the baseline, so it draws from a
-   * render-local group and needs no cleanup. Drawn while tool === "line" with a live draft, or
-   * while an endpoint of a line or an edge is being dragged — and nothing otherwise. */
+   * render-local group and needs no cleanup. Drawn while tool === "line" with a live draft AND
+   * Shift held (L5, v1.9: in default mode the lock wins and nothing anchors, so a ring would
+   * promise a snap nobody takes), or while an endpoint of a line or an edge is being dragged —
+   * and nothing otherwise. */
   function anchorSvg() {
     var px = null, py = null, opts = null;
-    if (tool === "line" && draft && draft.hover) {
+    if (tool === "line" && draft && draft.hover && shiftDown) {
       px = draft.hover[0]; py = draft.hover[1];
     } else if (pathDrag && pathDrag.hover &&
         (pathDrag.kind === "eend" ||
@@ -1925,17 +1931,20 @@
       return;
     }
     if (evt.button !== 0) return;
-    if (tool === "straight") {   // S2: the press opens a two-point draft; a drag, not clicks
-      var sp = toSvgPoint(evt);
-      draft = { points: [[Math.max(0, sp.x), Math.max(0, sp.y)]], hover: null };
-      try { host.setPointerCapture(evt.pointerId); } catch (e2) { /* synthetic pointer */ }
-      return;   // no render: with no hover the draft is not drawn — a press must not flash (S3)
-    }
     if (tool === "line") {   // Z4.2: a draft opens/appends; nothing else answers in line mode
       var lp = toSvgPoint(evt);
       if (!draft) draft = { points: [], hover: null };
-      draft.points.push([Math.max(0, lp.x), Math.max(0, lp.y)]);   // Z2: the pane never writes < 0
-      draft.hover = draft.points[draft.points.length - 1].slice();
+      var lx = Math.max(0, lp.x), ly = Math.max(0, lp.y);   // Z2: the pane never writes < 0
+      /* L2/L4 (v1.9): every point after the first locks to the nearest 45° step from the
+       * previous point, the length the pointer vector's projection onto that step; Shift at
+       * THIS placement frees the angle. The first point has nothing to reference and stays. */
+      if (draft.points.length) {
+        var lPrev = draft.points[draft.points.length - 1];
+        var lc = constrainStep45(lPrev[0], lPrev[1], lx, ly, evt.shiftKey);
+        lx = Math.max(0, lc[0]); ly = Math.max(0, lc[1]);
+      }
+      draft.points.push([lx, ly]);
+      draft.hover = [lx, ly];
       try { host.setPointerCapture(evt.pointerId); } catch (e2) { /* synthetic pointer */ }
       drawLive();   // R2: the draft preview is chrome — the scene is untouched
       return;
@@ -2022,17 +2031,17 @@
       return;
     }
     if (resize) { resizeMove(evt); return; }   // X5
-    if (draft && tool === "straight") {   // S2/S4: the free end follows the pointer, locked to
-      var sp2 = toSvgPoint(evt);          // 45° steps unless Shift frees the angle
-      var sAnchor = draft.points[0];
-      draft.hover = constrainStep45(sAnchor[0], sAnchor[1],
-        Math.max(0, sp2.x), Math.max(0, sp2.y), evt.shiftKey);
-      drawLive();   // F1: the preview is chrome — a live drag never rebuilds the scene (R2)
-      return;
-    }
     if (draft) {   // Z4.2: the rubber preview's free end follows the pointer
       var hp = toSvgPoint(evt);
-      draft.hover = [Math.max(0, hp.x), Math.max(0, hp.y)];
+      var hx = Math.max(0, hp.x), hy = Math.max(0, hp.y);
+      /* L3 (v1.9): the preview's free end is the CONSTRAINED point — what is drawn is what the
+       * click writes. Same per-event Shift read as the placement (L4). */
+      if (tool === "line" && draft.points.length) {
+        var hPrev = draft.points[draft.points.length - 1];
+        var hc = constrainStep45(hPrev[0], hPrev[1], hx, hy, evt.shiftKey);
+        hx = Math.max(0, hc[0]); hy = Math.max(0, hc[1]);
+      }
+      draft.hover = [hx, hy];
       drawLive();   // synchronous: the preview must track the pointer (R2: chrome only)
       return;
     }
@@ -2091,7 +2100,8 @@
 
   host.addEventListener("pointerup", function () {
     guides = null;   // X6: the guides only live for the duration of the drag
-    if (draft && tool === "straight") { commitStraight(); return; }   // S2: the drop commits
+    /* L6 (v1.9): the line gesture is click-per-point ONLY — a release in line mode ends no
+     * gesture; the draft stays open and the mode stays armed for the next click. */
     if (panDrag) { panDrag = null; drawLive(); return; }   // R6: a pan never touched the scene
     if (resize) { resize = null; drawLive(); return; }   // X5: the moves already landed (patched)
     if (pathDrag) {   // Z5: the drop finishes a path drag
@@ -2193,10 +2203,17 @@
     return el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA");
   }
   document.addEventListener("keydown", function (evt) {
+    /* L5 (v1.9): Shift is tracked before the field-focus bail so a keyup never desyncs it; with
+     * a live line draft the overlay's gate changes, so the chrome refreshes on the key alone. */
+    if (evt.key === "Shift") {
+      shiftDown = true;
+      if (tool === "line" && draft) drawLive();
+      return;
+    }
     if (fieldFocus()) return;
     var mod = evt.ctrlKey || evt.metaKey, key = evt.key;
     if (draft) {   // Z4.2: Enter commits the draft, Esc cancels it with no trace
-      if (key === "Enter") { evt.preventDefault(); commitDraft(); return; }
+      if (key === "Enter") { evt.preventDefault(); commitDraft(evt.shiftKey); return; }   // L5
       if (key === "Escape") { evt.preventDefault(); draft = null; drawLive(); return; }   // R2: chrome
     }
     if (key === " ") { spaceDown = true; evt.preventDefault(); return; }
@@ -2222,8 +2239,12 @@
   });
   document.addEventListener("keyup", function (evt) {
     if (evt.key === " ") spaceDown = false;
+    if (evt.key === "Shift") {   // L5: the overlay's gate follows the key alone too
+      shiftDown = false;
+      if (tool === "line" && draft) drawLive();
+    }
   });
-  window.addEventListener("blur", function () { spaceDown = false; });
+  window.addEventListener("blur", function () { spaceDown = false; shiftDown = false; });
 
   /* Z4.2: a double-click commits the draft — but the commit cannot listen to "dblclick".
    * render() rebuilds the whole SVG on every draft click, so the press and the release land on
@@ -2239,7 +2260,7 @@
       if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) > 0.5) break;
       draft.points.pop();
     }
-    commitDraft();
+    commitDraft(evt.shiftKey);   // L5: the ends anchor only with Shift held at the commit
   });
 
   /* ---- mutations ---- */
@@ -2287,11 +2308,11 @@
     return true;
   }
 
-  /* S4 (v1.8, amended): the straight drag is LOCKED to the nearest 45° step from the anchor —
-   * horizontal, vertical or one of the two diagonals — and Shift frees the angle. The length is
-   * the pointer vector's PROJECTION onto the snapped direction, so the preview and the commit
-   * cannot disagree. Pure, no DOM: the self-test asserts it directly. The axis-aligned cases
-   * return exact coordinates (no trig), so y === ay / x === ax hold to the bit. */
+  /* S4 (v1.8) + L2 (v1.9): a placed point is LOCKED to the nearest 45° step from the previous
+   * one — horizontal, vertical or one of the two diagonals — and Shift frees the angle. The
+   * length is the pointer vector's PROJECTION onto the snapped direction, so the preview and the
+   * commit cannot disagree. Pure, no DOM: the self-test asserts it directly. The axis-aligned
+   * cases return exact coordinates (no trig), so y === ay / x === ax hold to the bit. */
   function constrainStep45(ax, ay, bx, by, free) {
     if (free) return [bx, by];
     var dx = bx - ax, dy = by - ay;
@@ -2304,34 +2325,20 @@
     return [ax + half, ay + s * half];
   }
 
-  /* Z4.2 + A5: the draft commits through the one factory; a draft with fewer than 2 points is
-   * dropped without a message and never touched the model or the undo history. The two ENDS snap
-   * at commit — v1.7's snapAnchor records {ref, side, at} (Z4.3's successor); the snapped point
-   * is KEPT in points as the Z3.4 fallback. Interior points never snap. */
-  function commitDraft() {
+  /* Z4.2 + A5 (amended L5, v1.9): the draft commits through the one factory; a draft with fewer
+   * than 2 points is dropped without a message and never touched the model or the undo history.
+   * The two ENDS snap at commit ONLY while Shift is held — the lock wins by default and nothing
+   * anchors, even inside the band; with Shift v1.7's snapAnchor records {ref, side, at} (Z4.3's
+   * successor) and the snapped point is KEPT in points as the Z3.4 fallback. Interior points
+   * never snap. */
+  function commitDraft(shiftHeld) {
     var pts = draft ? draft.points : [];
     draft = null;
     if (pts.length < 2) { render(); return; }
-    var from = snapAnchor(pts[0][0], pts[0][1]);
+    var from = shiftHeld ? snapAnchor(pts[0][0], pts[0][1]) : null;
     var last = pts[pts.length - 1];
-    var to = snapAnchor(last[0], last[1]);
+    var to = shiftHeld ? snapAnchor(last[0], last[1]) : null;
     addLine(pts, from, to);
-  }
-
-  /* S2/S5 (v1.8): the straight drag commits through the SAME addLine factory as the line tool —
-   * a two-point line whose ends snap via snapAnchor exactly as commitDraft's do. A press with no
-   * move (no hover) or a stroke shorter than 3 document units commits NOTHING: no model write,
-   * no undo entry, no selection change — and the mode stays armed for the next drag. F1: such a
-   * canceled stroke is "nothing happened", so it costs nothing either — the preview is chrome,
-   * dropping it is a chrome refresh, and the scene is not rebuilt. */
-  function commitStraight() {
-    var anchor = draft && draft.points.length ? draft.points[0] : null;
-    var end = draft ? draft.hover : null;
-    draft = null;
-    if (!anchor || !end) { drawLive(); return; }
-    if (Math.hypot(end[0] - anchor[0], end[1] - anchor[1]) < 3) { drawLive(); return; }
-    addLine([anchor.slice(), end.slice()],
-      snapAnchor(anchor[0], anchor[1]), snapAnchor(end[0], end[1]));
   }
 
   /* Z4.4: the single line factory — appends to state.lines, snapshots for undo, selects the new
@@ -3526,22 +3533,20 @@
   if (close) close.addEventListener("click", closePanel);
 
   /* ---- toolbar ---- */
-  /* Z4.1 + S6: the single writer of the tool mode. Exactly one [data-tool] is pressed; line and
-   * straight mode set the crosshair cursor, leaving them restores the default. Switching away
-   * drops an open draft — it never reached the model (Z4.2). Clicking the active drawing tool
-   * toggles back to select; `select` is always the way out. */
+  /* Z4.1 + S6 (amended L1/L6, v1.9): the single writer of the tool mode — `select` and `line`
+   * only; the straight tool is gone (the line tool's 45° lock does its job). Exactly one
+   * [data-tool] is pressed; line mode sets the crosshair cursor, leaving it restores the
+   * default. Switching away drops an open draft — it never reached the model (Z4.2). Clicking
+   * the active drawing tool toggles back to select; `select` is always the way out. */
   function setTool(name) {
-    var next = name === "line" ? (tool === "line" ? "select" : "line")
-             : name === "straight" ? (tool === "straight" ? "select" : "straight")
-             : "select";
+    var next = name === "line" ? (tool === "line" ? "select" : "line") : "select";
     if (next !== tool) {
       tool = next;
-      if (draft) { draft = null; render(); }   // S6: leaving the mode drops a live straight draft too
+      if (draft) { draft = null; render(); }   // S6: leaving the mode drops a live draft too
     }
-    if (host) host.style.cursor = (tool === "line" || tool === "straight") ? "crosshair" : "";
-    say(tool === "line" ? "line: click to add points, double-click or Enter commits, Esc cancels"
-      : tool === "straight" ? "straight line: drag for a 45°-step line (horizontal, vertical or " +   // S7
-        "diagonal), hold Shift for any angle"
+    if (host) host.style.cursor = tool === "line" ? "crosshair" : "";
+    say(tool === "line" ? "line: click to add points on 45° steps (Shift frees the angle and " +
+      "anchors the ends), double-click or Enter commits, Esc cancels"
       : "");
     syncButtons();
   }
@@ -3630,17 +3635,8 @@
     if (document.querySelector("[data-tool]")) return;
     var addNoteBtn = document.querySelector('[data-act="addnote"]');
     if (!addNoteBtn) return;
-    // F4 (v1.8 round 3): the fallback straight button carries the SAME 16x16 two-end-dot glyph
-    // the served bar does — boardkit.py's _BAR_GLYPHS["straight"] and bar_button markup, verbatim.
     addNoteBtn.insertAdjacentHTML("afterend",
       '<button data-tool="select" aria-pressed="true">select</button>' +
-      '<button class="ck-ico" data-tool="straight" aria-pressed="false" ' +
-      'aria-label="draw a straight line" title="straight line: drag from A to B for a 45°-step ' +
-      'line (horizontal, vertical or diagonal), hold Shift for any angle">' +
-      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="M3 13 L 13 3"/><circle cx="3" cy="13" r="1.2"/>' +
-      '<circle cx="13" cy="3" r="1.2"/></svg></button>' +
       '<button data-tool="line" aria-pressed="false">line</button>');
   })();
   if (location.hash !== "#selftest" && location.hash !== "#selftest-pane") restore();
@@ -5080,14 +5076,14 @@
         report.steps.push([nm, false]);
       });
       function v17set(nm, val) { report.steps[v17slot[nm]] = [nm, !!val]; }
-      /* Same discipline for the v1.8 name (S-gate): present from the start, TRUE only when the
+      /* Same discipline for the v1.9 name (L-gate): present from the start, TRUE only when the
        * step completes. */
-      var v18slot = {};
-      ["straightdraw"].forEach(function (nm) {
-        v18slot[nm] = report.steps.length;
+      var v19slot = {};
+      ["line45"].forEach(function (nm) {
+        v19slot[nm] = report.steps.length;
         report.steps.push([nm, false]);
       });
-      function v18set(nm, val) { report.steps[v18slot[nm]] = [nm, !!val]; }
+      function v19set(nm, val) { report.steps[v19slot[nm]] = [nm, !!val]; }
 
       /* ---- v1.6 (lane I): the line tool (Z4), path editing (Z5.1), edge waypoints (Z5.2/Z5.3)
        * and screen-space hit testing (Z5.4). Board-agnostic like the rest: own fixture right of
@@ -5129,8 +5125,10 @@
       var lp1 = docPt(LX + 40, 300), lp2 = docPt(LX + 200, 380), lp3 = docPt(LX + 420, 300);
       pev("svg", "pointerdown", lp1.x, lp1.y);
       pev("svg", "pointerup", lp1.x, lp1.y);
-      pev("svg", "pointerdown", lp2.x, lp2.y);
-      pev("svg", "pointerup", lp2.x, lp2.y);
+      // v1.9 (L2/L4): the 45° lock is the default — lp2 sits off every step from lp1, so it is
+      // placed with Shift held (free angle); the step's subject is the gesture, not the lock.
+      pev("svg", "pointerdown", lp2.x, lp2.y, { shiftKey: true });
+      pev("svg", "pointerup", lp2.x, lp2.y, { shiftKey: true });
       pev("svg", "pointermove", lp3.x, lp3.y);
       var previewShown = !!host.querySelector(".ck-draft");   // the rubber preview follows the pointer
       var midDraft = (state.lines || []).length === linesBefore;   // the draft is not in the model
@@ -5185,14 +5183,20 @@
       // Z4.3: the two ENDS snap — inside a rect or within 8 screen px of its border (the tolerance
       // is screen-space: at 2x zoom the same 8 px is 4 document units). Interior points never
       // snap; the snapped point is KEPT in points as the Z3.4 fallback.
+      // v1.9 (L4/L5): anchoring is the SHIFT behaviour now, so the stroke is painted and
+      // committed with Shift held — free placement keeps the pinned points, the Shift commit
+      // anchors the ends exactly as v1.6 measured.
       if (lineBtn) lineBtn.click();
       var sA = docPt(LX + 40, 100);            // inside st-la
       var sB = docPt(LX + 200, 300);           // a free interior point
       var sC = docPt(LX + 320 - 5, 100);       // 5 document px left of st-lb's left border
-      pev("svg", "pointerdown", sA.x, sA.y); pev("svg", "pointerup", sA.x, sA.y);
-      pev("svg", "pointerdown", sB.x, sB.y); pev("svg", "pointerup", sB.x, sB.y);
-      pev("svg", "pointerdown", sC.x, sC.y); pev("svg", "pointerup", sC.x, sC.y);
-      key("Enter");
+      pev("svg", "pointerdown", sA.x, sA.y, { shiftKey: true });
+      pev("svg", "pointerup", sA.x, sA.y, { shiftKey: true });
+      pev("svg", "pointerdown", sB.x, sB.y, { shiftKey: true });
+      pev("svg", "pointerup", sB.x, sB.y, { shiftKey: true });
+      pev("svg", "pointerdown", sC.x, sC.y, { shiftKey: true });
+      pev("svg", "pointerup", sC.x, sC.y, { shiftKey: true });
+      key("Enter", { shiftKey: true });
       var snapLine = (state.lines || [])[(state.lines || []).length - 1];
       var snapOk = !!snapLine && snapLine.points.length === 3 &&
         snapLine.from && snapLine.from.ref === "st-la" &&
@@ -5211,14 +5215,18 @@
       var sIn = docPt(LX + 40, 100);
       var sFar = docPt(LX - 13 / sTol, 100);  // 13 screen px from the candidate: outside 12
       var sNear = docPt(LX - 10 / sTol, 100); // 10 screen px: inside
-      pev("svg", "pointerdown", sIn.x, sIn.y); pev("svg", "pointerup", sIn.x, sIn.y);
-      pev("svg", "pointerdown", sFar.x, sFar.y); pev("svg", "pointerup", sFar.x, sFar.y);
-      key("Enter");
+      pev("svg", "pointerdown", sIn.x, sIn.y, { shiftKey: true });
+      pev("svg", "pointerup", sIn.x, sIn.y, { shiftKey: true });
+      pev("svg", "pointerdown", sFar.x, sFar.y, { shiftKey: true });
+      pev("svg", "pointerup", sFar.x, sFar.y, { shiftKey: true });
+      key("Enter", { shiftKey: true });
       var farLine = (state.lines || [])[(state.lines || []).length - 1];
       var farOk = !!farLine && farLine.from && farLine.from.ref === "st-la" && !farLine.to;
-      pev("svg", "pointerdown", sIn.x, sIn.y); pev("svg", "pointerup", sIn.x, sIn.y);
-      pev("svg", "pointerdown", sNear.x, sNear.y); pev("svg", "pointerup", sNear.x, sNear.y);
-      key("Enter");
+      pev("svg", "pointerdown", sIn.x, sIn.y, { shiftKey: true });
+      pev("svg", "pointerup", sIn.x, sIn.y, { shiftKey: true });
+      pev("svg", "pointerdown", sNear.x, sNear.y, { shiftKey: true });
+      pev("svg", "pointerup", sNear.x, sNear.y, { shiftKey: true });
+      key("Enter", { shiftKey: true });
       var nearLine = (state.lines || [])[(state.lines || []).length - 1];
       var nearOk = !!nearLine && nearLine.to && nearLine.to.ref === "st-la" &&
         nearLine.to.side === "left";
@@ -5561,13 +5569,16 @@
       var aSelBtn = document.querySelector('[data-tool="select"]');
       var aSc1 = svgScaleNow();
       function aStroke(pts) {   // paint and commit one stroke, return the new line
+        /* v1.9 (L4/L5): anchoring at drawing time is the SHIFT behaviour, so the stroke is
+         * painted and committed with Shift held — the placement is free (the pinned points are
+         * kept to the pixel) and the commit anchors the ends exactly as v1.7 measured. */
         var n0 = (state.lines || []).length;
         pts.forEach(function (p) {
           var sp = docPt(p[0], p[1]);
-          pev("svg", "pointerdown", sp.x, sp.y);
-          pev("svg", "pointerup", sp.x, sp.y);
+          pev("svg", "pointerdown", sp.x, sp.y, { shiftKey: true });
+          pev("svg", "pointerup", sp.x, sp.y, { shiftKey: true });
         });
-        key("Enter");
+        key("Enter", { shiftKey: true });
         var ls = state.lines || [];
         return ls.length === n0 + 1 ? ls[ls.length - 1] : null;
       }
@@ -5577,13 +5588,17 @@
 
       // A4: the affordance — 12 dots of the ONE owning box, the would-be candidate ringed, all
       // of it screen-space through the rendered scale, inside the board SVG, never in the model.
+      // v1.9 (L5): the overlay is drawn ONLY while Shift is held with a live draft, so the whole
+      // step runs with Shift down — the tracker gates the overlay, the events' shiftKey keeps the
+      // hover free, and every geometry assertion below reads the same numbers v1.7 pinned.
       var apFail = [];
       if (aLineBtn) aLineBtn.click();
+      key("Shift");
       var apStart = docPt(AX - 300, 500);   // a free first point, far from every box
-      pev("svg", "pointerdown", apStart.x, apStart.y);
-      pev("svg", "pointerup", apStart.x, apStart.y);
+      pev("svg", "pointerdown", apStart.x, apStart.y, { shiftKey: true });
+      pev("svg", "pointerup", apStart.x, apStart.y, { shiftKey: true });
       var apHov = docPt(AX + 30, 70);       // inside st-aa — and inside the area backdrop
-      pev("svg", "pointermove", apHov.x, apHov.y);
+      pev("svg", "pointermove", apHov.x, apHov.y, { shiftKey: true });
       var apOv = host.querySelector(".ck-anchors");
       if (!apOv || apOv.getAttribute("data-owner") !== "st-aa") {
         apFail.push(["owner", apOv ? apOv.getAttribute("data-owner") : "no overlay"]);
@@ -5626,19 +5641,19 @@
       }
       // the area backdrop alone owns nothing: a hover inside it (and away from st-aa) draws none
       var apArea = docPt(AX + 300, 250);
-      pev("svg", "pointermove", apArea.x, apArea.y);
+      pev("svg", "pointermove", apArea.x, apArea.y, { shiftKey: true });
       if (host.querySelector(".ck-anchors")) {
         apFail.push(["area", "the area backdrop owns the overlay"]);
       }
       // the 24 SCREEN px border band: 20 px off st-aa's border still owns it, 30 px does not
       var apIn20 = docPt(AX - 20 / aSc1, 110);
-      pev("svg", "pointermove", apIn20.x, apIn20.y);
+      pev("svg", "pointermove", apIn20.x, apIn20.y, { shiftKey: true });
       var apOv20 = host.querySelector(".ck-anchors");
       if (!apOv20 || apOv20.getAttribute("data-owner") !== "st-aa") {
         apFail.push(["band20", apOv20 ? apOv20.getAttribute("data-owner") : "no overlay"]);
       }
       var apOut30 = docPt(AX - 30 / aSc1, 110);   // within the area's own band — still nothing
-      pev("svg", "pointermove", apOut30.x, apOut30.y);
+      pev("svg", "pointermove", apOut30.x, apOut30.y, { shiftKey: true });
       if (host.querySelector(".ck-anchors")) {
         apFail.push(["band30", "a box owns the overlay from 30 screen px away"]);
       }
@@ -5647,7 +5662,7 @@
        * band (straight off the left side, where the nearest candidate is left@0.5). */
       [[12.5, "ringband12"], [20, "ringband20"], [23.5, "ringband24"]].forEach(function (bp) {
         var bpt = docPt(AX - bp[0] / aSc1, 110);
-        pev("svg", "pointermove", bpt.x, bpt.y);
+        pev("svg", "pointermove", bpt.x, bpt.y, { shiftKey: true });
         var bOv = host.querySelector(".ck-anchors");
         var bRings = host.querySelectorAll(".ck-aring");
         if (!bOv || bOv.getAttribute("data-owner") !== "st-aa" || bRings.length !== 1 ||
@@ -5662,12 +5677,12 @@
        * rectangle — 20 px left AND 20 px above the corner is ~28 screen px away, so NOTHING
        * owns the overlay there, while a 16/16 diagonal (~23 px) still owns it. */
       var apDiagOut = docPt(AX - 20 / aSc1, 60 - 20 / aSc1);
-      pev("svg", "pointermove", apDiagOut.x, apDiagOut.y);
+      pev("svg", "pointermove", apDiagOut.x, apDiagOut.y, { shiftKey: true });
       if (host.querySelector(".ck-anchors")) {
         apFail.push(["corner24", "a diagonal ~28 screen px away owns the overlay"]);
       }
       var apDiagIn = docPt(AX - 16 / aSc1, 60 - 16 / aSc1);
-      pev("svg", "pointermove", apDiagIn.x, apDiagIn.y);
+      pev("svg", "pointermove", apDiagIn.x, apDiagIn.y, { shiftKey: true });
       var apOvDI = host.querySelector(".ck-anchors");
       if (!apOvDI || apOvDI.getAttribute("data-owner") !== "st-aa" ||
           host.querySelectorAll(".ck-aring").length !== 1) {
@@ -5680,12 +5695,12 @@
       render();
       var aSc2 = svgScaleNow();
       var apZout = docPt(AX - 20 / aSc2, 60 - 20 / aSc2);
-      pev("svg", "pointermove", apZout.x, apZout.y);
+      pev("svg", "pointermove", apZout.x, apZout.y, { shiftKey: true });
       if (host.querySelector(".ck-anchors")) {
         apFail.push(["corner24z", "zoomed: the far diagonal owns the overlay"]);
       }
       var apZband = docPt(AX - 20 / aSc2, 110);
-      pev("svg", "pointermove", apZband.x, apZband.y);
+      pev("svg", "pointermove", apZband.x, apZband.y, { shiftKey: true });
       var apOvZ = host.querySelector(".ck-anchors");
       var apRZ = host.querySelectorAll(".ck-aring");
       if (!apOvZ || apOvZ.getAttribute("data-owner") !== "st-aa" || apRZ.length !== 1) {
@@ -5695,13 +5710,13 @@
       render();
       // ties: the smaller rect wins, then the lowest id — never the document order
       var apTie1 = docPt(AX + 720, 80);   // inside st-tie-small and st-tie-big alike
-      pev("svg", "pointermove", apTie1.x, apTie1.y);
+      pev("svg", "pointermove", apTie1.x, apTie1.y, { shiftKey: true });
       var apOvT1 = host.querySelector(".ck-anchors");
       if (!apOvT1 || apOvT1.getAttribute("data-owner") !== "st-tie-small") {
         apFail.push(["tiesize", apOvT1 ? apOvT1.getAttribute("data-owner") : "no overlay"]);
       }
       var apTie2 = docPt(AX + 1050, 100);   // inside the identical st-tie-b and st-tie-a
-      pev("svg", "pointermove", apTie2.x, apTie2.y);
+      pev("svg", "pointermove", apTie2.x, apTie2.y, { shiftKey: true });
       var apOvT2 = host.querySelector(".ck-anchors");
       if (!apOvT2 || apOvT2.getAttribute("data-owner") !== "st-tie-a") {
         apFail.push(["tieid", apOvT2 ? apOvT2.getAttribute("data-owner") : "no overlay"]);
@@ -5709,6 +5724,10 @@
       // ...and nothing otherwise: no draft, no drag — no overlay
       key("Escape");
       if (host.querySelector(".ck-anchors")) apFail.push(["off", "the overlay survives the draft"]);
+      document.dispatchEvent(new KeyboardEvent("keyup", { key: "Shift", bubbles: true }));
+      if (host.querySelector(".ck-anchors")) {
+        apFail.push(["off2", "the overlay survives the Shift keyup"]);
+      }
       if (aSelBtn) aSelBtn.click();
       v17set("anchorpoints", apFail.length === 0);
       if (apFail.length) report.anchorpoints = apFail;
@@ -6067,123 +6086,144 @@
       closePanel();
       render();
 
-      /* ---- v1.8 (lane S, S1-S7): the straight tool. A press-drag-release commits ONE two-point
-       * line through the existing addLine factory; the PLAIN drag is locked to the nearest 45°
-       * step (horizontal, vertical, diagonal) with the length projected onto it, and Shift frees
-       * the angle; a <3-unit stroke and Esc leave no trace; select is the way out. Driven with
-       * the REAL button and synthetic pointer events, read back from the model. ---- */
-      var sFail = [];
-      var sLines0 = (state.lines || []).length;
-      var sW0 = state.width, sH0 = state.height, sGrid = state.grid || 10;
-      var SX = Math.ceil((sW0 + 40) / sGrid) * sGrid;
-      state.width = SX + 900;
+      /* ---- v1.9 (lane L, L1-L6): the straight tool is GONE and the line tool locks to 45°
+       * steps — a click places the CONSTRAINED point (the first point is free), the preview's
+       * free end is that constrained point, Shift frees the angle per placement, the two ends
+       * anchor ONLY when Shift is held at the commit, the anchor overlay exists only while Shift
+       * is held with a live draft, and the gesture is click-per-point: a press-drag-release
+       * places exactly one point and leaves the mode armed. Driven with the REAL controls and
+       * synthetic pointer events, read back from the MODEL. ---- */
+      var l9Fail = [];
+      var l9Lines0 = (state.lines || []).length;
+      var l9W0 = state.width, l9H0 = state.height, l9Grid = state.grid || 10;
+      var VX = Math.ceil((l9W0 + 40) / l9Grid) * l9Grid;
+      state.nodes.push({ id: "st-l9", x: VX + 500, y: 60, w: 160, h: 100, text: "l9",
+        kind: "box", tone: "default" });
+      state.width = VX + 900;
       state.height = Math.max(state.height, 800);
       view = { x: 0, y: 0, k: 1 };
       setSelection([]);
       closePanel();
       render();
-      var sBtn = document.querySelector('[data-tool="straight"]');
-      var sSelBtn = document.querySelector('[data-tool="select"]');
-      function sPressed() { return document.querySelectorAll('[data-tool][aria-pressed="true"]'); }
-      function sLast() { return (state.lines || [])[(state.lines || []).length - 1]; }
-      if (!sBtn) {
-        sFail.push(["button", "no [data-tool=\"straight\"] control in the bar"]);
-      } else {
-        if (sBtn.getAttribute("aria-label") !== "draw a straight line") {
-          sFail.push(["label", String(sBtn.getAttribute("aria-label"))]);
+      var l9Btn = document.querySelector('[data-tool="line"]');
+      var l9SelBtn = document.querySelector('[data-tool="select"]');
+      function l9Last() { return (state.lines || [])[(state.lines || []).length - 1]; }
+      // L1: no trace of the straight tool survives in the bar
+      if (document.querySelector('[data-tool="straight"]')) {
+        l9Fail.push(["tool", "a [data-tool=\"straight\"] control is still in the bar"]);
+      }
+      if (!l9Btn) { l9Fail.push(["button", "no [data-tool=\"line\"] control in the bar"]); }
+      else {
+        l9Btn.click();
+        /* L2/L3: click a start, move to a ~40° offset — the preview's free end is the
+         * CONSTRAINED point already — click, commit: the second point sits ON the 45° step
+         * (|dy| === |dx|), the first point exactly where it was clicked. dx=140, dy=117 ->
+         * ~39.9° -> the diagonal step, the projection (140+117)/2 = 128.5 -> (VX+168.5, 428.5). */
+        var l9Hist0 = history.length;
+        var l9A = docPt(VX + 40, 300);
+        pev("svg", "pointerdown", l9A.x, l9A.y);
+        pev("svg", "pointerup", l9A.x, l9A.y);
+        var l9B = docPt(VX + 180, 417);
+        pev("svg", "pointermove", l9B.x, l9B.y);
+        var l9Pre = host.querySelector(".ck-draft");
+        var l9PreOk = false;
+        if (l9Pre) {
+          var l9PrePts = l9Pre.getAttribute("points").split(" ");
+          var l9PreTail = l9PrePts[l9PrePts.length - 1].split(",");
+          l9PreOk = Math.abs(parseFloat(l9PreTail[0]) - (VX + 168.5)) < 0.6 &&
+                    Math.abs(parseFloat(l9PreTail[1]) - 428.5) < 0.6;
         }
-        if ((sBtn.getAttribute("title") || "").indexOf("Shift") === -1) {
-          sFail.push(["title", String(sBtn.getAttribute("title"))]);
+        if (!l9PreOk) {
+          l9Fail.push(["preview", l9Pre ? l9Pre.getAttribute("points") : "no draft"]);
         }
-        sBtn.click();
-        if (!(tool === "straight" && sBtn.getAttribute("aria-pressed") === "true" &&
-              sSelBtn && sSelBtn.getAttribute("aria-pressed") === "false" &&
-              sPressed().length === 1 && sPressed()[0] === sBtn &&
-              host.style.cursor === "crosshair")) {
-          sFail.push(["modeon", tool + "/" + host.style.cursor]);
+        pev("svg", "pointerdown", l9B.x, l9B.y);
+        pev("svg", "pointerup", l9B.x, l9B.y);
+        key("Enter");
+        var l9L1 = l9Last();
+        if (!l9L1 || (state.lines || []).length !== l9Lines0 + 1 || l9L1.points.length !== 2 ||
+            Math.abs(l9L1.points[0][0] - (VX + 40)) >= 1 ||
+            Math.abs(l9L1.points[0][1] - 300) >= 1 ||
+            Math.abs(l9L1.points[1][0] - (VX + 168.5)) >= 1 ||
+            Math.abs(l9L1.points[1][1] - 428.5) >= 1 ||
+            Math.abs(Math.abs(l9L1.points[1][1] - l9L1.points[0][1]) -
+                     Math.abs(l9L1.points[1][0] - l9L1.points[0][0])) >= 1e-9 ||
+            history.length !== Math.min(50, l9Hist0 + 1)) {
+          l9Fail.push(["lock", JSON.stringify(l9L1 ? l9L1.points : null)]);
         }
-        if (document.getElementById("ck-status").textContent !==
-            "straight line: drag for a 45°-step line (horizontal, vertical or diagonal), " +
-            "hold Shift for any angle") {
-          sFail.push(["message", document.getElementById("ck-status").textContent]);
+        // L4: a SHIFT placement is free — the committed point is the pointer's own (140, 33 is
+        // off every 45° step)
+        var l9C0 = docPt(VX + 40, 520);
+        pev("svg", "pointerdown", l9C0.x, l9C0.y);
+        pev("svg", "pointerup", l9C0.x, l9C0.y);
+        var l9C1 = docPt(VX + 180, 553);
+        pev("svg", "pointerdown", l9C1.x, l9C1.y, { shiftKey: true });
+        pev("svg", "pointerup", l9C1.x, l9C1.y, { shiftKey: true });
+        key("Enter");
+        var l9L2 = l9Last();
+        if (!l9L2 || l9L2.points.length !== 2 ||
+            Math.abs(l9L2.points[1][0] - (VX + 180)) >= 1 ||
+            Math.abs(l9L2.points[1][1] - 553) >= 1 ||
+            Math.abs(Math.abs(l9L2.points[1][1] - l9L2.points[0][1]) -
+                     Math.abs(l9L2.points[1][0] - l9L2.points[0][0])) < 1e-9) {
+          l9Fail.push(["shiftfree", JSON.stringify(l9L2 ? l9L2.points : null)]);
         }
-        // S2: a plain mostly-horizontal drag commits ONE two-point line, locked to 0° (S4)
-        var sHist0 = history.length;
-        // F1 (v1.8 round 3): the LIVE straight drag refreshes chrome only. Capture the svg and
-        // its top-level scene children BEFORE the press; while the draft is live (after the
-        // move, before the release) the same svg object must be in place, every captured child
-        // still connected to it, and the scene-rebuild counter unmoved. A check that only reads
-        // the model back cannot see a rebuild.
-        var sSvgA = host.querySelector("svg.ck-board");
-        var sKidsA = [].slice.call(sSvgA.childNodes, 0, sceneKids);   // scene children only
-        var sR0 = sceneRebuilds;
-        var pA = docPt(SX + 100, 300), pB = docPt(SX + 240, 318);
-        pev("svg", "pointerdown", pA.x, pA.y);
-        var sNoFlash = !host.querySelector(".ck-draft");   // S3: a press alone draws nothing
-        pev("svg", "pointermove", pB.x, pB.y);
-        var sPreview = !!host.querySelector(".ck-draft");
-        var sMidDraft = (state.lines || []).length === sLines0;   // not in the model yet
-        var sLiveSame = host.querySelector("svg.ck-board") === sSvgA;
-        var sLiveKept = sKidsA.every(function (kA) {
-          return kA.isConnected && kA.parentNode === sSvgA;
-        });
-        var sLiveRebuilds = sceneRebuilds - sR0;
-        pev("svg", "pointerup", pB.x, pB.y);
-        var sLine = sLast();
-        if (!(sNoFlash && sPreview && sMidDraft)) {
-          sFail.push(["preview", JSON.stringify([sNoFlash, sPreview, sMidDraft])]);
+        /* L5: a DEFAULT commit lands the locked end INSIDE the box (the stroke is horizontal, so
+         * the end lands exactly on the pointer) — and records NO anchor, and no overlay ever
+         * drew... */
+        var l9D0 = docPt(VX + 300, 110);
+        pev("svg", "pointerdown", l9D0.x, l9D0.y);
+        pev("svg", "pointerup", l9D0.x, l9D0.y);
+        var l9D1 = docPt(VX + 540, 110);   // inside st-l9
+        pev("svg", "pointermove", l9D1.x, l9D1.y);
+        if (host.querySelector(".ck-anchors")) {
+          l9Fail.push(["overlay", "the anchor overlay draws without Shift"]);
         }
-        if (!(sLiveSame && sLiveKept && sLiveRebuilds === 0)) {
-          sFail.push(["livedrag", JSON.stringify([sLiveSame, sLiveKept, sLiveRebuilds])]);
+        pev("svg", "pointerdown", l9D1.x, l9D1.y);
+        pev("svg", "pointerup", l9D1.x, l9D1.y);
+        key("Enter");
+        var l9L3 = l9Last();
+        if (!l9L3 || l9L3.from || l9L3.to) {
+          l9Fail.push(["lockwins", JSON.stringify([l9L3 && l9L3.from, l9L3 && l9L3.to])]);
         }
-        if (!sLine || (state.lines || []).length !== sLines0 + 1 || sLine.points.length !== 2 ||
-            Math.abs(sLine.points[0][0] - (SX + 100)) >= 1 ||
-            Math.abs(sLine.points[0][1] - 300) >= 1 ||
-            Math.abs(sLine.points[1][0] - (SX + 240)) >= 1 ||
-            sLine.points[1][1] !== sLine.points[0][1] ||   // the lock is exact: y0 === y1
-            sLine.from || sLine.to ||
-            selection.length !== 1 || selection[0].type !== "line" || selection[0].id !== sLine.id ||
-            history.length !== Math.min(50, sHist0 + 1) ||
-            !panel.classList.contains("on") || !secOn("line")) {
-          sFail.push(["horizontal", JSON.stringify(sLine ? sLine.points : null)]);
+        // ...while a SHIFT commit anchors the end exactly as v1.7's snapAnchor did — and the
+        // overlay appears for the Shift-held draft (the gate follows the key alone).
+        var l9E0 = docPt(VX + 300, 310);   // far from every box
+        pev("svg", "pointerdown", l9E0.x, l9E0.y);
+        pev("svg", "pointerup", l9E0.x, l9E0.y);
+        key("Shift");
+        pev("svg", "pointermove", l9D1.x, l9D1.y, { shiftKey: true });
+        var l9Ov = host.querySelector(".ck-anchors");
+        if (!l9Ov || l9Ov.getAttribute("data-owner") !== "st-l9") {
+          l9Fail.push(["overlayshift", l9Ov ? l9Ov.getAttribute("data-owner") : "no overlay"]);
         }
-        // a plain mostly-vertical drag locks to 90°: x0 === x1
-        var pV1 = docPt(SX + 100, 340), pV2 = docPt(SX + 118, 480);
-        pev("svg", "pointerdown", pV1.x, pV1.y);
-        pev("svg", "pointermove", pV2.x, pV2.y);
-        pev("svg", "pointerup", pV2.x, pV2.y);
-        var sVert = sLast();
-        if (!sVert || sVert.points.length !== 2 ||
-            sVert.points[1][0] !== sVert.points[0][0] ||
-            Math.abs(sVert.points[1][1] - 480) >= 1) {
-          sFail.push(["vertical", JSON.stringify(sVert ? sVert.points : null)]);
+        pev("svg", "pointerdown", l9D1.x, l9D1.y, { shiftKey: true });
+        pev("svg", "pointerup", l9D1.x, l9D1.y, { shiftKey: true });
+        key("Enter", { shiftKey: true });
+        document.dispatchEvent(new KeyboardEvent("keyup", { key: "Shift", bubbles: true }));
+        var l9L4 = l9Last();
+        if (!l9L4 || l9L4.from || !l9L4.to || l9L4.to.ref !== "st-l9" ||
+            l9L4.to.side !== "left" || l9L4.to.at !== 0.5) {
+          l9Fail.push(["shiftanchors", JSON.stringify([l9L4 && l9L4.from, l9L4 && l9L4.to])]);
         }
-        // a plain ~40° drag locks to the 45° step: |dy| === |dx|
-        var pD1 = docPt(SX + 300, 300), pD2 = docPt(SX + 440, 420);
-        pev("svg", "pointerdown", pD1.x, pD1.y);
-        pev("svg", "pointermove", pD2.x, pD2.y);
-        pev("svg", "pointerup", pD2.x, pD2.y);
-        var sDiag = sLast();
-        if (!sDiag || sDiag.points.length !== 2 ||
-            Math.abs(Math.abs(sDiag.points[1][1] - sDiag.points[0][1]) -
-                     Math.abs(sDiag.points[1][0] - sDiag.points[0][0])) >= 1e-9) {
-          sFail.push(["diagonal", JSON.stringify(sDiag ? sDiag.points : null)]);
+        // L6: a press-drag-release places exactly ONE point and leaves the mode armed
+        var l9N0 = (state.lines || []).length;
+        var l9F0 = docPt(VX + 40, 640);
+        pev("svg", "pointerdown", l9F0.x, l9F0.y);
+        var l9Fm = docPt(VX + 80, 620);
+        pev("svg", "pointermove", l9Fm.x, l9Fm.y);
+        var l9F1 = docPt(VX + 200, 680);
+        pev("svg", "pointermove", l9F1.x, l9F1.y);
+        pev("svg", "pointerup", l9F1.x, l9F1.y);
+        if (!((state.lines || []).length === l9N0 && draft && draft.points.length === 1 &&
+              tool === "line" && l9Btn.getAttribute("aria-pressed") === "true")) {
+          l9Fail.push(["nodrag", JSON.stringify([(state.lines || []).length - l9N0,
+            draft ? draft.points.length : null, tool])]);
         }
-        // a SHIFT drag is free: the committed end is exactly the pointer's own point
-        var pS1 = docPt(SX + 300, 520), pS2 = docPt(SX + 440, 553);
-        pev("svg", "pointerdown", pS1.x, pS1.y, { shiftKey: true });
-        pev("svg", "pointermove", pS2.x, pS2.y, { shiftKey: true });
-        pev("svg", "pointerup", pS2.x, pS2.y, { shiftKey: true });
-        var sFree = sLast();
-        if (!sFree || sFree.points.length !== 2 ||
-            Math.abs(sFree.points[1][0] - (SX + 440)) >= 1 ||
-            Math.abs(sFree.points[1][1] - 553) >= 1 ||
-            sFree.points[1][1] === sFree.points[0][1] ||
-            Math.abs(sFree.points[1][1] - sFree.points[0][1]) ===
-              Math.abs(sFree.points[1][0] - sFree.points[0][0])) {
-          sFail.push(["shiftfree", JSON.stringify(sFree ? sFree.points : null)]);
+        key("Escape");   // the one-point draft drops with no trace
+        if ((state.lines || []).length !== l9N0 || host.querySelector(".ck-draft")) {
+          l9Fail.push(["nodragtrace", "the dropped draft left a trace"]);
         }
-        // S4: the helper itself, on the five pinned cases
+        // the helper itself, on the five pinned cases (v1.8 S4, kept)
         var c1 = constrainStep45(50, 50, 60, 53, false);    // (10,3) -> horizontal
         var c2 = constrainStep45(50, 50, 53, 60, false);    // (3,10) -> vertical
         var c3 = constrainStep45(50, 50, 60, 59, false);    // (10,9) -> the 45° step
@@ -6193,73 +6233,21 @@
               Math.abs(c3[1] - 50) === Math.abs(c3[0] - 50) &&
               c4[1] === 50 && c4[0] === 60 &&
               c5[0] === 60 && c5[1] === 53)) {
-          sFail.push(["helper", JSON.stringify([c1, c2, c3, c4, c5])]);
+          l9Fail.push(["helper", JSON.stringify([c1, c2, c3, c4, c5])]);
         }
-        // S2: a 2-unit stroke writes nothing — no line, no undo entry — and the mode stays armed.
-        // F1: a canceled stroke is "nothing happened", so the scene is not even rebuilt.
-        var sHist1 = history.length;
-        var sSvgN = host.querySelector("svg.ck-board");
-        var sKidsN = [].slice.call(sSvgN.childNodes, 0, sceneKids);   // scene only: the chrome
-        var sRN = sceneRebuilds;                                      // of the selected line is
-        var pN1 = docPt(SX + 600, 300), pN2 = docPt(SX + 602, 300);   // legitimately refreshed
-        pev("svg", "pointerdown", pN1.x, pN1.y);
-        pev("svg", "pointermove", pN2.x, pN2.y);
-        pev("svg", "pointerup", pN2.x, pN2.y);
-        var sShortKept = host.querySelector("svg.ck-board") === sSvgN &&
-          sKidsN.every(function (kN) { return kN.isConnected && kN.parentNode === sSvgN; }) &&
-          sceneRebuilds - sRN === 0;
-        if (!((state.lines || []).length === sLines0 + 4 && history.length === sHist1 &&
-              tool === "straight" && sBtn.getAttribute("aria-pressed") === "true" && sShortKept)) {
-          sFail.push(["shortstroke", JSON.stringify([(state.lines || []).length - sLines0,
-            history.length - sHist1, tool, sShortKept])]);
-        }
-        // S5: Esc during a live straight draft leaves no trace — and no panel section.
-        // F1: cancelling costs nothing — same svg, every scene child kept, no rebuild.
-        closePanel();
-        var sSvgE = host.querySelector("svg.ck-board");
-        var sKidsE = [].slice.call(sSvgE.childNodes, 0, sceneKids);   // scene only, as above
-        var sRE = sceneRebuilds;
-        var pE1 = docPt(SX + 600, 420), pE2 = docPt(SX + 700, 440);
-        pev("svg", "pointerdown", pE1.x, pE1.y);
-        pev("svg", "pointermove", pE2.x, pE2.y);
-        key("Escape");
-        var sEscKept = host.querySelector("svg.ck-board") === sSvgE &&
-          sKidsE.every(function (kE) { return kE.isConnected && kE.parentNode === sSvgE; }) &&
-          sceneRebuilds - sRE === 0;
-        if (!((state.lines || []).length === sLines0 + 4 && history.length === sHist1 &&
-              !host.querySelector(".ck-draft") && !panel.classList.contains("on") && sEscKept)) {
-          sFail.push(["esc", JSON.stringify([(state.lines || []).length - sLines0,
-            history.length - sHist1, !!host.querySelector(".ck-draft"), sEscKept])]);
-        }
-        // S6: leaving the mode drops a live straight draft, commits nothing, and clears the mode
-        var pL1 = docPt(SX + 600, 560), pL2 = docPt(SX + 700, 560);
-        pev("svg", "pointerdown", pL1.x, pL1.y);
-        pev("svg", "pointermove", pL2.x, pL2.y);
-        if (!sSelBtn) { sFail.push(["selectbtn", "no [data-tool=\"select\"] control"]); }
-        else {
-          sSelBtn.click();   // the REAL way out — a missing or inert button fails here
-          if (!(tool === "select" && host.style.cursor === "" &&
-                sSelBtn.getAttribute("aria-pressed") === "true" &&
-                sBtn.getAttribute("aria-pressed") === "false" &&
-                sPressed().length === 1 && sPressed()[0] === sSelBtn &&
-                (state.lines || []).length === sLines0 + 4 && history.length === sHist1 &&
-                !host.querySelector(".ck-draft") &&
-                document.getElementById("ck-status").textContent === "")) {
-            sFail.push(["modeoff", tool + "/" + host.style.cursor + "/" +
-              document.getElementById("ck-status").textContent]);
-          }
-        }
+        if (l9SelBtn) l9SelBtn.click();
       }
-      // leave nothing behind: the four committed lines and the fixture geometry go
-      state.lines = (state.lines || []).filter(function (l4, i5) { return i5 < sLines0; });
-      state.width = sW0;
-      state.height = sH0;
+      // leave nothing behind: the committed lines and the fixture box go
+      state.lines = (state.lines || []).filter(function (l4, i5) { return i5 < l9Lines0; });
+      state.nodes = state.nodes.filter(function (n5) { return n5.id !== "st-l9"; });
+      state.width = l9W0;
+      state.height = l9H0;
       setTool("select");
       setSelection([]);
       closePanel();
       render();
-      v18set("straightdraw", sFail.length === 0);
-      if (sFail.length) report.straightdraw = sFail;
+      v19set("line45", l9Fail.length === 0);
+      if (l9Fail.length) report.line45 = l9Fail;
       /* ---- v1.8 (lane R): the live render path. A gesture must not rebuild the board: the
        * one <svg class="ck-board"> survives, every top-level scene child captured before a
        * gesture is still connected to it afterwards, the editor's own scene-rebuild counter
@@ -6285,6 +6273,7 @@
         var lpKidsA = [].slice.call(lpSvgA.childNodes);
         var lpR0 = sceneRebuilds;
         var lpStart = docPt(60, state.height - 160);
+        var lpStartDoc = [60, state.height - 160];
         pev("svg", "pointerdown", lpStart.x, lpStart.y);
         pev("svg", "pointerup", lpStart.x, lpStart.y);
         var lpLastDoc = null;
@@ -6296,10 +6285,15 @@
         var lpPoly = host.querySelector(".ck-draft");
         var lpDraftOk = false;
         if (lpPoly) {
+          /* L3 (v1.9): the preview's free end is the CONSTRAINED point, not the raw pointer —
+           * the expectation is derived here, from the same start point and the pointer, through
+           * the helper the placement uses. The identity/churn checks below are untouched. */
+          var lpWant = constrainStep45(lpStartDoc[0], lpStartDoc[1],
+            lpLastDoc[0], lpLastDoc[1], false);
           var lpPts = lpPoly.getAttribute("points").split(" ");
           var lpTail = lpPts[lpPts.length - 1].split(",");
-          lpDraftOk = Math.abs(parseFloat(lpTail[0]) - lpLastDoc[0]) < 0.6 &&
-                      Math.abs(parseFloat(lpTail[1]) - lpLastDoc[1]) < 0.6;
+          lpDraftOk = Math.abs(parseFloat(lpTail[0]) - lpWant[0]) < 0.6 &&
+                      Math.abs(parseFloat(lpTail[1]) - lpWant[1]) < 0.6;
         }
         var lpStrokeSame = host.querySelector("svg.ck-board") === lpSvgA;
         var lpStrokeKept = lpKidsA.every(function (k) {
@@ -6309,7 +6303,7 @@
         key("Escape");   // the draft is chrome: cancelling it touches nothing in the scene
         var lpSelBtn = document.querySelector('[data-tool="select"]');
         if (lpSelBtn) lpSelBtn.click();
-        if (!lpDraftOk) lpFail.push("the draft preview does not end at the pointer");
+        if (!lpDraftOk) lpFail.push("the draft preview does not end at the constrained point");
         if (!lpStrokeSame) lpFail.push("the svg was replaced during the stroke");
         if (!lpStrokeKept) lpFail.push("a scene child was replaced during the stroke");
         if (lpStrokeRebuilds !== 0) lpFail.push("stroke scene rebuilds: " + lpStrokeRebuilds);

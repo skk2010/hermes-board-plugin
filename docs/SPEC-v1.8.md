@@ -140,10 +140,16 @@ escape hatch is announced.
    still reproduces (R7), and two new checks are added by the ORCHESTRATOR (not by a lane):
    * `gesture_churn` — via `probe_chrome`: capture the top-level scene children and observe
      `#ck-board-host`; drive a 20-move synthetic stroke in line mode and a 20-move node drag;
-     require `<svg class="ck-board">` creations `<= 1` across both, every captured scene child still
-     `isConnected` to the same parent, host childList mutations `<= 2` per gesture, and — the drift
-     check — `host.innerHTML` after the patched drag equal to `host.innerHTML` after forcing a full
-     scene rebuild (two grid toggles). With the fix reverted this check fails on all four counts.
+     require every captured scene child still `isConnected` to the same parent and the same
+     `<svg class="ck-board">` object (the scene-identity checks are the proof that the scene was not
+     rebuilt), plus a budget on the HOST's OWN childList records (`<= 2` per gesture — the count is a
+     guard against replacing the host's children, one `<svg>` at a time, and NOT an independent proof
+     of scene stability: a build that rebuilds the scene inside the kept `<svg>` satisfies the budget,
+     which is why the identity checks carry that claim); and — the drift check — `host.innerHTML`
+     after the patched drag equal to `host.innerHTML` after forcing a full scene rebuild (two grid
+     toggles). Measured on the pre-fix head: the identity checks and the drift check are red, and the
+     host budget is 21 against a fixed head's 0. (Verifier round 3 corrected an earlier wording here
+     that read like an SVG-creation count and claimed "all four counts" fail on a reverted fix.)
    * `straight_tool` — the rendered page at 440 px carries `data-tool="straight"` inside the `.ck-bar`
      (read from the RENDERED DOM, not from the page source), the bar still occupies one row, and the
      editor's `straightdraw` step is present and true.

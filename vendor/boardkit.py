@@ -1607,9 +1607,6 @@ _BAR_GLYPHS = {
                '<path d="M11.6 8.4 V 13 M9.3 10.7 H 13.9"/>',
     "line": '<path d="M3 12.5 L 7 6 L 10.5 9.5 L 13.5 3.5"/>'
             '<circle cx="3" cy="12.5" r="1.2"/><circle cx="13.5" cy="3.5" r="1.2"/>',
-    # v1.8 (S1): one diagonal stroke, a dot at each end — the drag's two points
-    "straight": '<path d="M3 13 L 13 3"/>'
-                '<circle cx="3" cy="13" r="1.2"/><circle cx="13" cy="3" r="1.2"/>',
     "select": '<path d="M4.5 2.5 L 12.6 8.1 L 8.9 8.9 L 10.8 13.3 L 8.9 14.1 L 7 9.7 L 4.5 12.2 Z"/>',
     "grid": '<rect x="2.5" y="2.5" width="11" height="11" rx="1"/>'
             '<path d="M6.17 2.5 V 13.5 M9.83 2.5 V 13.5 M2.5 6.17 H 13.5 M2.5 9.83 H 13.5"/>',
@@ -1666,13 +1663,12 @@ h1.ck-h1{font-size:16px;margin:0 0 2px}
    tool · view · history · file — with a .ck-sep between them, every control icon-only (16px
    currentColor SVG, aria-label + title) except the zoom readout, and the transient message in its
    own block (.ck-msg) UNDER the bar instead of inside the flex row. No control of the bar is
-   wider than 36px, so 14 controls + 4 separators fit the pane's 416px content box in one line:
+   wider than 36px, so 13 controls + 4 separators fit the pane's 416px content box in one line:
    measured, the old flat row of 12 text controls was 664px and wrapped to 476x61. `flex-wrap`
    stays, so a narrowed pane still degrades to a second row instead of overflowing.
    Every child of the bar is 22px tall — including the separators — so the whole row shares ONE
-   top line, which is what the `barfit` self-test step measures. v1.8 (S1): the straight button
-   made it 14 controls, and the row's slack was ~1px — the icon buttons are 24px wide now (the
-   16px glyph still centres), which is what keeps the row single. */
+   top line, which is what the `barfit` self-test step measures. v1.9 (L1): the straight tool is
+   gone, so the tool group is select + line again and the row's slack is one control wider. */
 .ck-bar{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:0 0 4px}
 .ck-bar button{font:inherit;font-size:12px;padding:4px 9px;border-radius:7px;
   border:1px solid var(--ck-grid);background:transparent;color:var(--ck-fg);cursor:pointer}
@@ -1699,6 +1695,16 @@ h1.ck-h1{font-size:16px;margin:0 0 2px}
   color:var(--ck-fg)}
 .ck-panel .ck-row{display:flex;gap:6px;margin-top:8px}
 .ck-panel .ck-row button{flex:1}
+/* v1.9 (D1-D5): the name line — the name row takes the remaining width, the delete cell is
+   right-pulled and starts at the label's own line (the "node name" caption, whose margin-top is
+   6px); the trash is an icon-only button. */
+.ck-panel .ck-nameline{display:flex;gap:6px;align-items:flex-start;margin-top:4px}
+.ck-panel .ck-nameline .ck-prow{flex:1;min-width:0}
+.ck-panel .ck-delcell{flex:0 0 auto;margin-top:6px}
+.ck-panel .ck-delcell button{box-sizing:border-box;width:24px;height:24px;padding:3px;
+  border:1px solid var(--ck-grid);border-radius:6px;background:transparent;color:var(--ck-fg);
+  cursor:pointer}
+.ck-panel .ck-delcell svg{display:block;margin:0 auto}
 /* v1.4 (X1): rows hide by selection — [hidden] must beat .ck-row's flex; checkboxes stay narrow */
 .ck-panel [hidden]{display:none}
 .ck-panel input[type=checkbox]{width:auto}
@@ -1795,14 +1801,10 @@ def page(b: dict, *, interactive: bool = True, title: str | None = None,
             + bar_button("select", "select",
                          "select and move items — the way out of line mode",
                          tool="select", pressed=True, on=True)
-            # v1.8 (S1/S7): the straight drag, locked to 45° steps unless Shift frees the angle
-            + bar_button("straight", "draw a straight line",
-                         "straight line: drag from A to B for a 45°-step line (horizontal, "
-                         "vertical or diagonal), hold Shift for any angle",
-                         tool="straight", pressed=True)
             + bar_button("line", "draw a line",
-                         "draw a line: click the canvas for each point, Enter or a double-click "
-                         "commits, Esc cancels", tool="line", pressed=True)
+                         "draw a line: click the canvas for each point — every point locks to "
+                         "the nearest 45° step, Shift frees the angle and anchors the ends — "
+                         "Enter or a double-click commits, Esc cancels", tool="line", pressed=True)
             + sep
             + bar_button("grid", "grid", "show the background grid", act="grid", pressed=True)
             + bar_button("zoom-out", "zoom out", "zoom out", act="zoom-out")
@@ -1853,10 +1855,26 @@ def page(b: dict, *, interactive: bool = True, title: str | None = None,
             '<div class="ck-panel" id="ck-panel">'
             '<div><b id="ck-panel-id"></b></div>'
             '<div class="ck-hint" id="ck-multi-hint" hidden></div>'
-            # Y1 content: text, sub, text size, bold.
-            '<details class="ck-sec" data-section="content" open><summary>content</summary>'
+            # v1.9 (D1-D5): the name line — a flex row of its own at the panel's TOP holding
+            # the name row (#ck-row-text: id, hiding and PANEL_ROWS membership unchanged) and
+            # a right-pulled cell with the delete control, so the trash sits on the name's own
+            # line for a named item, and at the panel's top-right for a table, an edge or a
+            # line (the name row hides for those; the cell is NOT a ck-row-* id and stays out
+            # of PANEL_ROWS, so it never inherits that hiding). The glyph matches the desktop's
+            # own trash: lid + can + two ribs.
+            '<div class="ck-nameline">'
             '<div class="ck-prow" id="ck-row-text"><label>text</label><input id="ck-text">'
             '<span class="ck-hint" data-hint-for="ck-text">the main text of the item</span></div>'
+            '<div class="ck-delcell"><button id="ck-delete" '
+            'aria-label="delete the selected item" title="delete the selected item (Del)">'
+            '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
+            'stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">'
+            '<path d="M2.4 4 H 13.6 M6.2 4 V 2.6 H 9.8 V 4"/>'
+            '<path d="M3.9 4 L 4.6 13.4 H 11.4 L 12.1 4"/>'
+            '<path d="M6.6 6.6 V 11 M9.4 6.6 V 11"/></svg></button></div>'
+            '</div>'
+            # Y1 content: sub, text size, bold (the text row moved to the name line, v1.9 D1).
+            '<details class="ck-sec" data-section="content" open><summary>content</summary>'
             '<div class="ck-prow" id="ck-row-sub"><label>sub</label><input id="ck-sub">'
             '<span class="ck-hint" data-hint-for="ck-sub">a second line under the text</span></div>'
             '<div class="ck-prow" id="ck-row-text-size"><label>text size</label>'
@@ -2121,8 +2139,8 @@ def page(b: dict, *, interactive: bool = True, title: str | None = None,
             '<span class="ck-hint" data-hint-for="ck-line-to-at">'
             'where on the side the line ends — 50 % by default</span></div>'
             '</details>'
-            '<div class="ck-row"><button id="ck-delete">delete</button>'
-            '<button id="ck-close">close</button></div></div>'
+            # v1.9 (D1): the bottom row keeps close alone — delete lives on the name line.
+            '<div class="ck-row"><button id="ck-close">close</button></div></div>'
         )
         with open(EDITOR, "r", encoding="utf-8") as handle:
             flag = "<script>window.CK_BOARD_BRIDGE = true;</script>\n" if bridge else ""

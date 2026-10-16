@@ -754,36 +754,28 @@ def width_checks() -> None:
 
 
 CHURN_SCRIPT = r"""
-  /* v1.8 (R1-R5, S1-S4): what does a gesture do to the board's DOM?
+  /* v1.9: what the line tool does with a click, with Shift, and what the panel's delete control is.
    *
-   * Real mouse input over CDP is the better proof, but this probe asks four questions that are
-   * DOM facts and cannot be faked by the editor's own claims: does the <svg> element survive a
-   * gesture, do the scene's elements survive it BY IDENTITY (a scene rebuild replaces every one of
-   * them), does a patched gesture render exactly as a full render does, and what does a real
-   * straight drag commit. The observer is read with takeRecords() because MutationObserver
-   * callbacks are microtasks: a synchronous gesture would otherwise report nothing at all.
+   * Every number here is read from the RENDERED page: the committed polyline's own points, the draft
+   * preview, the anchor overlay's presence, and the delete control's box against the name field's. A
+   * check that reads a helper back cannot see a rule that is not wired to the gesture.
    */
   var host = document.getElementById('ck-board-host');
   var CHROME = ['ck-guides', 'ck-handles', 'ck-vtxs', 'ck-anchors', 'ck-draft', 'ck-marquee'];
   var out = { svgCreations: 0, strokeMutations: null, dragMutations: null, svgSame: null,
- strokeHostMutations: null, dragHostMutations: null, straightHostMutations: null,
- straightSvgSame: null, straightSceneKept: null, straightDraft: null,
- straightCancelKept: null, straightCancelDraft: null,
+              strokeHostMutations: null, dragHostMutations: null,
               strokeSceneKept: null, strokeDraft: null, dragSvgSame: null, dragSceneKept: null,
-              dragMoved: null, driftEqual: null, straightButton: null, tools: null,
-              step45: null, line45: null, vertical: null, lineVertical: null, shiftFree: null,
-              lineShift: null, barRows: null, transformBefore: null, transformAfter: null };
+              dragMoved: null, driftEqual: null, tools: null, barRows: null,
+              transformBefore: null, transformAfter: null,
+              lockCommitted: null, lockLine: null, freeCommitted: null, freeLine: null,
+              overlayDefault: null, overlayShift: null,
+              nodragLines: null, nodragMode: null };
   var obs = new MutationObserver(function () {});
   obs.observe(host, { childList: true, subtree: true });
-  /* Z9's budget is about the HOST's own children — the board that must not be thrown away — so it is
-   * counted separately: a chrome refresh inside the <svg> is deliberate and cheap, while a replaced
-   * host child is the defect. subtree counts the former, so it is reported, not asserted. */
   var hostObs = new MutationObserver(function () {});
   hostObs.observe(host, { childList: true });
   function take() { return obs.takeRecords().length; }
   function takeHost() { return hostObs.takeRecords().length; }
-  /* Numbers rounded to 3 decimals: the two halves format floats differently and that is not a
-   * mismatch — the same tolerance the renderer parity comparison uses. */
   function norm(s) {
     return s.replace(/-?\d+\.?\d*/g, function (m) { return String(Math.round(parseFloat(m) * 1000) / 1000); });
   }
@@ -797,7 +789,6 @@ CHURN_SCRIPT = r"""
       return true;
     });
   }
-  /* The scene's own signature: every top-level scene child's markup, normalised. */
   function sceneSig() {
     return scene().map(function (el) { return norm(el.outerHTML); }).join('\u0001');
   }
@@ -808,8 +799,19 @@ CHURN_SCRIPT = r"""
     if (opts) { for (var k in opts) { o[k] = opts[k]; } }
     el.dispatchEvent(new PointerEvent(type, o));
   }
-  /* A press on the canvas must not land on an item: the straight tool's own branch has to answer
-   * first, and an empty spot keeps that question out of this probe. */
+  function click(el, x, y, opts) { pev(el, 'pointerdown', x, y, opts); pev(el, 'pointerup', x, y, opts); }
+  function enter() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  }
+  function lines() { return document.querySelectorAll('.ck-line'); }
+  function polyOf(g) {
+    var p = g && g.querySelector('polyline');
+    if (!p) return null;
+    var parts = (p.getAttribute('points') || '').trim().split(/\s+/);
+    if (parts.length < 2) return null;
+    var a = parts[0].split(',').map(Number), b = parts[parts.length - 1].split(',').map(Number);
+    return { x0: a[0], y0: a[1], x1: b[0], y1: b[1] };
+  }
   function emptySpot(svg) {
     var r = svg.getBoundingClientRect();
     var boxes = [];
@@ -824,20 +826,55 @@ CHURN_SCRIPT = r"""
     }
     return [r.left + 8, r.top + 8];
   }
-  function polyOf(g) {
-    var p = g && g.querySelector('polyline');
-    if (!p) return null;
-    var parts = (p.getAttribute('points') || '').trim().split(/\s+/);
-    if (parts.length < 2) return null;
-    var a = parts[0].split(',').map(Number), b = parts[parts.length - 1].split(',').map(Number);
-    return { x0: a[0], y0: a[1], x1: b[0], y1: b[1] };
+  /* doc units per client pixel, from the page's own viewBox — what a client delta should look like
+   * in the committed points. */
+  function scaleOf(svg) {
+    var vb = (svg.getAttribute('viewBox') || '0 0 1 1').split(/\s+/);
+    var r = svg.getBoundingClientRect();
+    return r.width / parseFloat(vb[2]);
   }
-  function lines() { return document.querySelectorAll('.ck-line'); }
+  function visible(el) { return !!el && el.getClientRects().length > 0; }
+  function boxOfSel(sel) {
+    var el = document.querySelector(sel);
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+  }
+  /* "Pulled to the right edge" means the CONTENT edge: the panel's padding, its border and any
+   * scrollbar it reserves (its own small-window max-height can put one there) are not the edge a
+   * control is pulled to. */
+  function contentRight(sel) {
+    var el = document.querySelector(sel);
+    if (!el) return null;
+    var cs = getComputedStyle(el);
+    var border = parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+    var scroll = el.offsetWidth - el.clientWidth - border;   // 0 when nothing is reserved
+    var r = el.getBoundingClientRect();
+    return r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight) - scroll;
+  }
+  /* A client point on a polyline's own geometry (the editor's hit test is screen-space). */
+  function pointOn(svg, pl) {
+    var mid = pl.getPointAtLength(pl.getTotalLength() / 2);
+    var pt = svg.createSVGPoint();
+    pt.x = mid.x; pt.y = mid.y;
+    var c = pt.matrixTransform(pl.getScreenCTM());
+    return [c.x, c.y];
+  }
 
   try {
     out.svgCreations = document.querySelectorAll('svg.ck-board').length;
+    out.tools = Array.prototype.map.call(document.querySelectorAll('[data-tool]'),
+      function (b) { return b.getAttribute('data-tool') + ':' + b.getAttribute('aria-pressed'); }).join(' ');
+    var bar = document.querySelector('.ck-bar');
+    if (bar) {
+      var tops = {};
+      Array.prototype.forEach.call(bar.children, function (k) {
+        tops[Math.round(k.getBoundingClientRect().top)] = 1;
+      });
+      out.barRows = Object.keys(tops).length;
+    }
 
-    /* ---- 1. a 20-move stroke in line mode ---- */
+    /* ---- 1. a 20-move stroke in line mode (the v1.8 R-series contract still holds) ---- */
     document.querySelector('[data-tool="line"]').click();
     var svgRef = host.querySelector('svg.ck-board');
     var before = scene();
@@ -853,7 +890,7 @@ CHURN_SCRIPT = r"""
     out.strokeDraft = !!host.querySelector('.ck-draft');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
-    /* ---- 2. a 20-move node drag: identity DURING the gesture, then the drift check ---- */
+    /* ---- 2. a 20-move node drag (R3) + the drift check ---- */
     document.querySelector('[data-tool="select"]').click();
     var svgRef2 = host.querySelector('svg.ck-board');
     var before2 = scene();
@@ -866,85 +903,120 @@ CHURN_SCRIPT = r"""
     for (var j = 1; j <= 20; j++) { pev(host, 'pointermove', nx + j * 5, ny + j * 4); }
     out.dragMutations = take();
     out.dragHostMutations = takeHost();
-    out.dragSvgSame = host.querySelector('svg.ck-board') === svgRef2;   // measured while it is LIVE
+    out.dragSvgSame = host.querySelector('svg.ck-board') === svgRef2;
     out.dragSceneKept = before2.length > 0 && before2.every(function (el) { return el.isConnected; });
-    /* R4 while the gesture is still live, so a rebuild at the drop cannot hide a patch that drifted.
-     * The comparison is on the SCENE, and deliberately not on the chrome: the chrome is rebuilt from
-     * the model on every draw by construction, so it cannot drift — it can only be one frame behind,
-     * and a synchronous burst of pointer events leaves a requestAnimationFrame legitimately pending.
-     * The scene is what the patch wrote by hand, so the scene is what must equal a full rebuild's.
-     * Two grid toggles force two full scene rebuilds of the SAME model (grid_on returns to where it
-     * was); numbers are rounded to 3 decimals, the tolerance the two renderers are compared with. */
     var during = sceneSig();
     document.querySelector('[data-act="grid"]').click();
     document.querySelector('[data-act="grid"]').click();
     out.driftEqual = sceneSig() === during;
-    pev(host, 'pointerup', nx + 100, ny + 80);        // the drop is allowed to rebuild
+    pev(host, 'pointerup', nx + 100, ny + 80);
     var live = document.querySelector('.ck-node[data-id]');
     out.transformAfter = live ? live.getAttribute('transform') : null;
     out.dragMoved = !!live && out.transformAfter !== out.transformBefore;
 
-    /* ---- 3. the straight tool: control, then the 45-degree step through a real drag ---- */
-    out.straightButton = document.querySelectorAll('.ck-bar [data-tool="straight"]').length === 1;
-    out.tools = Array.prototype.map.call(document.querySelectorAll('[data-tool]'),
-      function (b) { return b.getAttribute('data-tool') + ':' + b.getAttribute('aria-pressed'); }).join(' ');
-    var bar = document.querySelector('.ck-bar');
-    if (bar) {
-      var tops = {};
-      Array.prototype.forEach.call(bar.children, function (k) {
-        tops[Math.round(k.getBoundingClientRect().top)] = 1;
-      });
-      out.barRows = Object.keys(tops).length;
+    /* ---- 3. the LINE tool locks to 45 degrees, and Shift frees it (L2/L3/L4) ---- */
+    document.querySelector('[data-tool="line"]').click();
+    var svgL = host.querySelector('svg.ck-board');
+    var spotL = emptySpot(svgL);
+    var sc = scaleOf(svgL);
+    var n0 = lines().length;
+    /* a ~41 degree placement must commit on the 45 degree step: same start, equal deltas */
+    click(host, spotL[0], spotL[1]);
+    pev(host, 'pointermove', spotL[0] + 80, spotL[1] + 70);
+    click(host, spotL[0] + 80, spotL[1] + 70);
+    enter();
+    if (lines().length === n0 + 1) {
+      out.lockLine = polyOf(lines()[lines().length - 1]);
+      out.lockCommitted = !!out.lockLine &&
+        Math.abs(Math.abs(out.lockLine.y1 - out.lockLine.y0) -
+                 Math.abs(out.lockLine.x1 - out.lockLine.x0)) < 0.2 &&
+        Math.abs((out.lockLine.x1 - out.lockLine.x0)) > 20;
     }
-    var straightBtn = document.querySelector('[data-tool="straight"]');
-    if (straightBtn) {
-      /* F1 (verifier round 2, CRITICAL): the straight drag is a LIVE gesture too. Identity is measured
-       * WHILE the draft is live — a drag that rebuilds the scene on every move passes every check that
-       * only reads the model back after the release — and again after Esc cancels it: a stroke that is
-       * thrown away must cost the scene nothing. */
-      straightBtn.click();
-      var svgS = host.querySelector('svg.ck-board');
-      var sceneS = scene();
-      var spotS = emptySpot(svgS);
-      take(); takeHost();
-      pev(svgS, 'pointerdown', spotS[0], spotS[1]);
-      var straightLines0 = lines().length;
-      for (var m = 1; m <= 20; m++) { pev(svgS, 'pointermove', spotS[0] + m * 6, spotS[1] + m * 4); }
-      out.straightSvgSame = host.querySelector('svg.ck-board') === svgS;
-      out.straightSceneKept = sceneS.length > 0 && sceneS.every(function (el) { return el.isConnected; });
-      out.straightDraft = !!host.querySelector('.ck-draft');
-      out.straightHostMutations = takeHost();
-      out.straightDraftLive = lines().length === straightLines0;   // still a draft, nothing written
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      out.straightCancelKept = sceneS.every(function (el) { return el.isConnected; });
-      out.straightCancelDraft = !host.querySelector('.ck-draft');
-      out.straightCancelWrote = lines().length !== straightLines0;
-      /* the mode stays armed after Esc (S2/S5): the three committed drags below ride on it */
-      var svg3 = host.querySelector('svg.ck-board');
-      var spot = emptySpot(svg3);
-      function drawTo(dx, dy, opts) {
-        var n0 = lines().length;
-        pev(svg3, 'pointerdown', spot[0], spot[1]);
-        pev(svg3, 'pointermove', spot[0] + dx, spot[1] + dy, opts);
-        pev(svg3, 'pointerup', spot[0] + dx, spot[1] + dy, opts);
-        var got = lines();
-        if (got.length !== n0 + 1) return null;
-        return polyOf(got[got.length - 1]);
-      }
-      out.line45 = drawTo(80, 70, null);            // ~41 degrees -> the 45-degree step
-      out.step45 = !!out.line45 &&
-        Math.abs(Math.abs(out.line45.y1 - out.line45.y0) - Math.abs(out.line45.x1 - out.line45.x0)) < 0.2;
-      out.lineVertical = drawTo(10, 90, null);      // mostly vertical -> the vertical step
-      out.vertical = !!out.lineVertical && Math.abs(out.lineVertical.x1 - out.lineVertical.x0) < 0.05;
-      out.lineShift = drawTo(80, 20, { shiftKey: true });   // Shift -> the pointer's own angle
-      out.shiftFree = !!out.lineShift &&
-        Math.abs((out.lineShift.y1 - out.lineShift.y0) - 0.25 * (out.lineShift.x1 - out.lineShift.x0)) < 0.4 &&
-        Math.abs(out.lineShift.x1 - out.lineShift.x0) > 20;
+    /* Shift at the placing click: the point lands where the pointer is (free) */
+    var n1 = lines().length;
+    var spotF = emptySpot(svgL);
+    click(host, spotF[0], spotF[1]);
+    pev(host, 'pointermove', spotF[0] + 80, spotF[1] + 20, { shiftKey: true });
+    click(host, spotF[0] + 80, spotF[1] + 20, { shiftKey: true });
+    enter();
+    if (lines().length === n1 + 1) {
+      out.freeLine = polyOf(lines()[lines().length - 1]);
+      out.freeCommitted = !!out.freeLine &&
+        Math.abs((out.freeLine.x1 - out.freeLine.x0) - 80 / sc) < 1.5 &&
+        Math.abs((out.freeLine.y1 - out.freeLine.y0) - 20 / sc) < 1.5;
+    }
+    /* the anchor overlay: absent by default, present while Shift is held over a box (L5) */
+    var anyNode = document.querySelector('.ck-node[data-id]');
+    var cb = anyNode.getBoundingClientRect();
+    var cx = cb.left + cb.width / 2, cy = cb.top + cb.height / 2;
+    var spotO = emptySpot(svgL);
+    click(host, spotO[0], spotO[1]);                       // a draft is live
+    pev(host, 'pointermove', cx, cy);                      // over a node, no Shift
+    out.overlayDefault = !!host.querySelector('.ck-anchors');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
+    pev(host, 'pointermove', cx + 1, cy + 1, { shiftKey: true });
+    out.overlayShift = !!host.querySelector('.ck-anchors');
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    /* ---- 4. click-per-point only: a press-drag-release places ONE point (L6/the user's choice) ---- */
+    var n2 = lines().length;
+    var spotD = emptySpot(svgL);
+    pev(host, 'pointerdown', spotD[0], spotD[1]);
+    for (var d = 1; d <= 20; d++) { pev(host, 'pointermove', spotD[0] + d * 6, spotD[1] + d * 4); }
+    pev(host, 'pointerup', spotD[0] + 120, spotD[1] + 80);
+    enter();                                               // a one-point draft commits nothing
+    out.nodragLines = lines().length - n2;
+    out.nodragMode = document.querySelector('[data-tool="line"]').getAttribute('aria-pressed');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    /* ---- 5. the panel's delete control (D1-D5) ---- */
+    document.querySelector('[data-tool="select"]').click();
+    var kinds = {};
+    function snap(kind) {
+      var del = document.getElementById('ck-delete');
+      var nameRow = document.getElementById('ck-row-text');
+      kinds[kind] = {
+        delVisible: visible(del),
+        nameHidden: !!(nameRow && nameRow.hidden),
+        delText: del ? String(del.textContent || '').trim() : null,
+        delSvg: !!(del && del.querySelector('svg')),
+        aria: del ? String(del.getAttribute('aria-label') || '') : '',
+        title: del ? String(del.getAttribute('title') || '') : '',
+        delBox: boxOfSel('#ck-delete'), textBox: boxOfSel('#ck-text'), panelBox: boxOfSel('.ck-panel'),
+        contentRight: contentRight('.ck-panel')
+      };
+    }
+    function clickNode(id) {
+      var el = document.querySelector('.ck-node[data-id="' + id + '"]');
+      if (!el) return false;
+      var r = el.getBoundingClientRect();
+      click(el, r.left + r.width / 2, r.top + r.height / 2);
+      return true;
+    }
+    function clickPoly(sel) {
+      var pl = document.querySelector(sel);
+      if (!pl) return false;
+      var p = pointOn(host.querySelector('svg.ck-board'), pl);
+      click(host, p[0], p[1]);
+      return true;
+    }
+    if (clickNode('box-a')) snap('node');
+    if (clickNode('tbl-1')) snap('table');
+    if (clickPoly('.ck-line polyline')) snap('line');
+    if (clickPoly('.ck-edge polyline')) snap('edge');
+    out.kinds = kinds;
+    /* and it still deletes */
+    var nNodes = document.querySelectorAll('.ck-node').length;
+    if (clickNode('box-a')) {
+      var del = document.getElementById('ck-delete');
+      if (del) del.click();
+      out.deleted = document.querySelectorAll('.ck-node').length < nNodes;
     }
   } catch (err) {
     out.error = String(err && err.message ? err.message : err);
   }
-  return out;              /* the harness stringifies it once */
+  return out;
 """
 
 
@@ -1116,7 +1188,7 @@ def main() -> int:
             by_name.setdefault(str(step[0]), []).append(bool(step[1]))
     for word in ("line", "linesnap", "lineedit", "edgepath", "barfit", "linepanel",
                  "anchorpoints", "anchorsnap", "anchordrag",
-                 "livepatch", "straightdraw"):
+                 "livepatch", "line45"):
         got = by_name.get(word, [])
         check(f"self-test exercised {word} exactly and truly", bool(got) and all(got), f"{word}: {got}")
 
@@ -1141,38 +1213,54 @@ def main() -> int:
     check("the drag never replaces the host's children (Z9 churn budget)",
           isinstance(drag_host, int) and drag_host <= 2,
           f"host childList mutations={drag_host}")
-    # F1 (verifier round 2, CRITICAL): the STRAIGHT drag is a live gesture too — measured while the
-    # draft is live, because a drag that rebuilds on every move passes every post-release check.
-    check("a live straight drag keeps the SAME svg element (F1/R1)", churn.get("straightSvgSame") is True,
-          f"straightSvgSame={churn.get('straightSvgSame')}")
-    check("a live straight drag leaves every scene element in place (F1/R2/S3)",
-          churn.get("straightSceneKept") is True,
-          f"kept={churn.get('straightSceneKept')} host mutations={churn.get('straightHostMutations')}")
-    straight_host = churn.get("straightHostMutations")
-    check("a live straight drag never replaces the host's children (F1/Z9 churn budget)",
-          isinstance(straight_host, int) and straight_host <= 2,
-          f"host childList mutations={straight_host}")
-    check("a live straight drag draws its preview and writes nothing yet (S2/S3)",
-          churn.get("straightDraft") is True and churn.get("straightDraftLive") is True,
-          f"draft={churn.get('straightDraft')} unwritten={churn.get('straightDraftLive')}")
-    check("Esc cancels a straight stroke without touching the scene (S5)",
-          churn.get("straightCancelKept") is True and churn.get("straightCancelDraft") is True and
-          churn.get("straightCancelWrote") is False,
-          f"kept={churn.get('straightCancelKept')} dropped={churn.get('straightCancelDraft')} "
-          f"wrote={churn.get('straightCancelWrote')}")
+    # v1.9 (L1-L6): the straight tool is gone, and the LINE tool carries the 45-degree lock — Shift
+    # frees the angle and is the only way an end anchors to a box. Read from the committed polyline.
+    check("the straight tool is gone from the rendered pane (L1)",
+          churn.get("tools") == "select:true line:false",
+          f"the tool buttons read: {churn.get('tools')}")
+    check("a plain line-mode click commits a 45-degree step (L2/L3)",
+          churn.get("lockCommitted") is True, str(churn.get("lockLine")))
+    check("a Shift click commits the pointer's own point (L4)",
+          churn.get("freeCommitted") is True, str(churn.get("freeLine")))
+    check("the anchor hint is absent by default and shown with Shift (L5)",
+          churn.get("overlayDefault") is False and churn.get("overlayShift") is True,
+          f"overlayDefault={churn.get('overlayDefault')} overlayShift={churn.get('overlayShift')}")
+    check("a press-drag-release in line mode places ONE point, not a segment (L6)",
+          churn.get("nodragLines") == 0 and churn.get("nodragMode") == "true",
+          f"lines written={churn.get('nodragLines')} mode pressed={churn.get('nodragMode')}")
+    # v1.9 (D1-D5): the panel's delete control — a glyph, on the name line, right-pulled, and visible
+    # for EVERY kind even where the name row is hidden.
+    kinds = churn.get("kinds") or {}
+    check("the panel's delete control is reachable for a node, a table, a line and an edge (D4)",
+          all(kinds.get(k, {}).get("delVisible") is True for k in ("node", "table", "line", "edge")),
+          str({k: (kinds.get(k) or {}).get("delVisible") for k in ("node", "table", "line", "edge")}))
+    check("the name row IS hidden for a table and a line — so the delete did not inherit it (D4)",
+          (kinds.get("table") or {}).get("nameHidden") is True and
+          (kinds.get("line") or {}).get("nameHidden") is True,
+          str({k: (kinds.get(k) or {}).get("nameHidden") for k in ("table", "line")}))
+    check("the delete control is a glyph with an accessible name, not a word (D2)",
+          all((kinds.get(k) or {}).get("delText") == "" and (kinds.get(k) or {}).get("delSvg") is True and
+              bool((kinds.get(k) or {}).get("aria")) and bool((kinds.get(k) or {}).get("title"))
+              for k in ("node", "table", "line", "edge")),
+          str({k: (kinds.get(k) or {}).get("delText") for k in ("node", "table")}))
+    node_kind = kinds.get("node") or {}
+    del_box, text_box, panel_box = node_kind.get("delBox"), node_kind.get("textBox"), node_kind.get("panelBox")
+    check("the delete control sits on the name field's own line, to its right (D1/D5)",
+          bool(del_box) and bool(text_box) and del_box["left"] >= text_box["right"] - 2 and
+          min(del_box["bottom"], text_box["bottom"]) - max(del_box["top"], text_box["top"]) > 0,
+          f"delete={del_box} name={text_box}")
+    gap_right = (node_kind.get("contentRight") - del_box["right"]) if del_box and node_kind.get("contentRight") else None
+    check("the delete control is pulled to the panel's right edge (D5)",
+          bool(del_box) and gap_right is not None and -1 <= gap_right <= 2 and
+          del_box["left"] > panel_box["left"] + (panel_box["right"] - panel_box["left"]) / 2,
+          f"delete={del_box} panel={panel_box} gap to the content edge={gap_right}")
+    check("the control still deletes (D3: the id and the wiring are unchanged)",
+          churn.get("deleted") is True, str(churn.get("deleted")))
     check("the drag really moved the item (so the identity checks are not vacuous)",
           churn.get("dragMoved") is True, str(churn.get("transformBefore")) + " -> " +
           str(churn.get("transformAfter")))
     check("a patched gesture renders exactly as a full render does (R4)", churn.get("driftEqual") is True,
           "the patched DOM differs from a full render of the same model")
-    check("the straight tool has a control in the rendered pane (S1)",
-          churn.get("straightButton") is True, str(churn.get("tools")))
-    check("a plain straight drag commits a 45-degree step (S2/S4)",
-          churn.get("step45") is True, str(churn.get("line45")))
-    check("a mostly-vertical straight drag commits a vertical line (S4)",
-          churn.get("vertical") is True, str(churn.get("lineVertical")))
-    check("a Shift straight drag keeps the pointer's own angle (S4)",
-          churn.get("shiftFree") is True, str(churn.get("lineShift")))
     print(f"  measured: stroke mutations={churn.get('strokeMutations')} "
           f"drag mutations={churn.get('dragMutations')} svg elements={churn.get('svgCreations')} "
           f"bar rows at 800px={churn.get('barRows')}")

@@ -469,14 +469,17 @@ the renderer resolves it (`null` there means the end is free).
 **The pane.** The toolbar's line tool is a MODE (crosshair): click to drop the first point, each
 further click appends one, a rubber band follows the pointer, and a double-click or Enter commits
 the line while Esc drops it (nothing reaches the document, and a draft with fewer than two points
-is discarded without a word). Next to it the **straight tool** (v1.8) draws one segment in a
-single gesture: press, drag, release. The drag is locked to the nearest 45° step — horizontal,
-vertical or diagonal ("parallel or perpendicular to the horizon") with the length projected onto
-the snapped direction — and holding Shift frees the angle. A stroke shorter than 3 units commits
-nothing, Esc cancels a live drag without a trace, and `select` is the way out of either mode. A
-committed straight line is the same `lines` primitive the multi-click tool produces: same snap,
-same panel, same edits. A point that lands inside a box or within 8 screen px of its border
-snaps that END to it — the point stays in the path as the fallback position, only the two ends
+is discarded without a word). **Every point it places is locked to the nearest 45° step** —
+horizontal, vertical or diagonal ("parallel or perpendicular to the horizon") — with the length
+taken as the pointer's projection onto that step, so the rubber band shows the point the click will
+write; the first point has nothing to reference and stays where it lands. **Holding Shift frees the
+angle** for the point being placed. (v1.9 removed the separate straight tool: it could only draw a
+single A→B segment, and the line tool does that in two clicks with the same lock.) A committed line
+is the same `lines` primitive the agent's ops produce: same panel, same edits. An END anchors to a
+box — inside it or within the 12 screen px band — **only while Shift is held**, which is also when
+the anchor hint (the candidate dots and the ring) appears: by default the lock wins and a line's
+ends stay free. The point stays in the path as the fallback position, only the two ends anchor, and
+an interior point is never touched. — the point stays in the path as the fallback position, only the two ends
 snap, and an interior point is never touched. A committed line is editable: drag a vertex, Alt-click
 a segment to insert one, Alt-click a vertex to remove it (never below two), Alt-click an anchored
 vertex to detach its anchor. The old `connect` button is gone — start the stroke on a box edge and
@@ -586,9 +589,9 @@ environment's interpreter (`~/.hermes/installs/*/environments/*/venv/bin/python`
 system `python3` usually has an incomplete FastAPI/pytest install and fails at import.
 
 The PNG checks skip themselves, loudly, on a machine with no Chrome/Chromium: the suite should not
-fail for a reason unrelated to the change. `.github/workflows/tests.yml` runs these five suites plus
-`node --check vendor/board_editor.js` on every pull request and every push to `main` — a runner
-with chromium asserted before the tests, `node:22` for the pane — and deliberately
+fail for a reason unrelated to the change. `.github/workflows/tests.yml` runs these five suites plus `node --check vendor/board_editor.js` on every merge
+request and every push to the default branch — `python:3.12-slim` with chromium installed and
+asserted (`command -v chromium`) before the tests, `node:22-alpine` for the pane — and deliberately
 does **not** install Hermes: `hermes plugins validate` / `doctor` stay the local, authoritative
 gates for the manifest and the desktop surface.
 
