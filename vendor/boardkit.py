@@ -39,6 +39,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import zlib
 
 TONES = ("default", "accent", "ok", "warn", "danger", "muted")
@@ -2147,7 +2148,7 @@ def page(b: dict, *, interactive: bool = True, title: str | None = None,
             script = f"{flag}<script>\n{handle.read()}\n</script>\n"
         # The editor re-renders from data, so the payload is always embedded.
         body.append(toolbar)
-        body.append(f'<script type="application/json" id="ck-board">{json.dumps(document, ensure_ascii=False)}</script>')
+        body.append(f'<script type="application/json" id="ck-board">{_json_for_script(document)}</script>')
         body.append(panel)
         body.append(f'<div id="ck-board-host">{render_svg(document)}</div>')
     else:
@@ -2204,6 +2205,39 @@ def find_chrome():
     return None
 
 
+def _is_root() -> bool:
+    """Running as root — the one case Chrome refuses to start without `--no-sandbox`."""
+    try:
+        return os.geteuid() == 0
+    except AttributeError:              # Windows has no geteuid
+        return False
+
+
+def _headless_args(binary: str, *, profile: str | None = None) -> list[str]:
+    """The ONE argv every headless invocation starts from.
+
+    `--no-sandbox` turns off Chrome's renderer sandbox and is only needed where Chrome refuses to
+    start without it (root). Passing it unconditionally meant a script injected into a board ran
+    unsandboxed; and without `--user-data-dir` the render borrowed the user's real Chrome profile.
+    """
+    args = [binary, "--headless=new", "--disable-gpu", "--hide-scrollbars"]
+    if _is_root():
+        args.append("--no-sandbox")
+    args.append(f"--user-data-dir={profile or tempfile.mkdtemp(prefix='ck-chrome-')}")
+    return args
+
+
+def _json_for_script(value) -> str:
+    """JSON that is safe to embed inside a `<script>` element.
+
+    `json.dumps` guarantees JSON, not HTML-safe script content: a `</script>` inside a string closes
+    the element and the remainder runs as markup (measured: a node text of `</script><script>...`
+    executed in the render browser and in every exported page). Escaping `<` keeps every JSON parser
+    happy and also neutralises `<!--` and `-->`.
+    """
+    return json.dumps(value, ensure_ascii=False).replace("<", "\\u003c")
+
+
 def page_size(html_path: str, *, binary: str | None = None,
               window_width: int | None = None) -> tuple[int, int] | None:
     """The page's own rendered size, measured in the browser — in CSS pixels.
@@ -2232,7 +2266,7 @@ def page_size(html_path: str, *, binary: str | None = None,
         measured = os.path.join(tmp, "size.html")
         with open(measured, "w", encoding="utf-8") as handle:
             handle.write(document)
-        args = [binary, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars"]
+        args = _headless_args(binary, profile=os.path.join(tmp, "profile"))
         # The board scales with the window width, so measure at the width we are going to shoot, and
         # keep the window SHORT so the body's height is the content's, not the viewport's.
         args.append(f"--window-size={int(window_width or 1000)},600")
@@ -2262,10 +2296,12 @@ def render_png(html_path: str, png_path: str, *, size: str | None = None,
         across = min(max(int(width or measured[0]), 320), 4000)
         down = min(max(measured[1] + 8, 240), 4000)   # +8: subpixel rounding at the bottom edge
         size = f"{across},{down}"
-    subprocess.run([binary, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars",
-                    f"--window-size={size}", f"--virtual-time-budget={budget_ms}",
-                    f"--screenshot={png_path}", "file://" + os.path.abspath(html_path) + extra],
-                   check=True, capture_output=True, timeout=300)
+    with tempfile.TemporaryDirectory(prefix="ck-shot-") as tmp:
+        argv = _headless_args(binary, profile=os.path.join(tmp, "profile"))
+        subprocess.run(argv + [f"--window-size={size}", f"--virtual-time-budget={budget_ms}",
+                               f"--screenshot={png_path}",
+                               "file://" + os.path.abspath(html_path) + extra],
+                       check=True, capture_output=True, timeout=300)
     return png_path
 
 
@@ -2414,8 +2450,8 @@ def _cdp_selftest(html_path: str, width: int, height: int, timeout: int,
     port = _free_port()
     profile = tempfile.mkdtemp(prefix="ck-cdp-")
     browser = subprocess.Popen(
-        [binary, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars",
-         f"--user-data-dir={profile}", f"--remote-debugging-port={port}", "about:blank"],
+        _headless_args(binary, profile=profile)
+        + [f"--remote-debugging-port={port}", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Loopback is never proxied: an ALL_PROXY in the environment must not come between the harness
     # and its own browser.
@@ -2483,10 +2519,11 @@ def selftest(html_path: str, timeout: int = 300) -> dict:
     binary = find_chrome()
     if not binary:
         raise RuntimeError("no Chrome/Chromium found")
-    dom = subprocess.run([binary, "--headless=new", "--disable-gpu", "--no-sandbox",
-                          "--virtual-time-budget=8000", "--dump-dom",
-                          "file://" + os.path.abspath(html_path) + "#selftest"],
-                         check=True, capture_output=True, text=True, timeout=timeout).stdout
+    with tempfile.TemporaryDirectory(prefix="ck-run-") as tmp:
+        dom = subprocess.run(_headless_args(binary, profile=os.path.join(tmp, "profile"))
+                             + ["--virtual-time-budget=8000", "--dump-dom",
+                                "file://" + os.path.abspath(html_path) + "#selftest"],
+                             check=True, capture_output=True, text=True, timeout=timeout).stdout
     hits = re.findall(r'<pre id="ck-selftest">(.*?)</pre>', dom, re.S)
     if not hits:
         raise AssertionError("self-test did not run (no #ck-selftest block in the DOM)")

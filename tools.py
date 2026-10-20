@@ -142,7 +142,7 @@ def register_tools(ctx) -> None:
     def board_render(params, **kwargs):
         board_id = params.get("id") or store.DEFAULT_ID
         kind = params.get("format") or "png"
-        path = store.render_to_file(board_id, kind=kind, out_path=params.get("out_path"))
+        path = store.render_to_file(board_id, kind=kind)
         return _json({"ok": True, "id": board_id, "format": kind, "path": path,
                       "hint": "attach this file to the reply (MEDIA:<path>) so the user sees it"})
 
@@ -245,8 +245,7 @@ def register_tools(ctx) -> None:
                 "format='html' for the interactive editor (drag, edit, export JSON).",
                 "parameters": {"type": "object", "properties": {
                     "id": {"type": "string"},
-                    "format": {"type": "string", "enum": ["png", "html"]},
-                    "out_path": {"type": "string", "description": "optional absolute output path"}},
+                    "format": {"type": "string", "enum": ["png", "html"]}},
                     "required": []}},
         handler=board_render)
 

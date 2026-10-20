@@ -55,6 +55,7 @@ jobs:
           python tests/test_vendor.py
           python tests/test_render.py
           python tests/test_editor.py
+          python tests/test_security.py
 
   pane_smoke:
     runs-on: ubuntu-24.04

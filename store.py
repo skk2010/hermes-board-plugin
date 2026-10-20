@@ -132,9 +132,18 @@ def boardkit():
 # --------------------------------------------------------------------------- files
 
 
+def _safe_id(board_id: str) -> str:
+    """The ONE sanitised form of a board id — used by every path built from it.
+
+    Ids are model- and user-supplied (`board_new id=...`), so none is ever interpolated raw. `_path()`
+    sanitised the id for the JSON store while the render paths did not, so a traversal id was FOUND by
+    `load_board` (which sanitises) and then rendered OUTSIDE RENDER_DIR.
+    """
+    return re.sub(r"[^a-z0-9_-]+", "-", str(board_id).strip().lower()) or DEFAULT_ID
+
+
 def _path(board_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9_-]+", "-", str(board_id).strip().lower()) or DEFAULT_ID
-    return os.path.join(BOARD_DIR, f"{safe}.json")
+    return os.path.join(BOARD_DIR, f"{_safe_id(board_id)}.json")
 
 
 def new_board(board_id: str = DEFAULT_ID, title: str | None = None) -> dict:
@@ -1760,20 +1769,25 @@ def render_html(board: dict, *, interactive: bool = True, bridge: bool = False,
     return boardkit().page(board, interactive=interactive, bridge=bridge, subtitle=subtitle)
 
 
-def render_to_file(board_id: str, kind: str = "html", out_path: str | None = None,
-                   board: dict | None = None) -> str:
-    """Render a board to disk (html always; png when a headless Chrome is available)."""
+def render_to_file(board_id: str, kind: str = "html", board: dict | None = None) -> str:
+    """Render a board to disk (html always; png when a headless Chrome is available).
+
+    There is deliberately no caller-chosen output path: the target is always built from the sanitised
+    id inside RENDER_DIR, so a prompt-injected render cannot overwrite an arbitrary file. Point
+    `HERMES_BOARD_RENDER_DIR` somewhere else to choose the directory.
+    """
     bk = boardkit()
     board = board or load_board(board_id)
     os.makedirs(RENDER_DIR, exist_ok=True)
+    safe = _safe_id(board_id)
     kind = (kind or "html").lower()
     if kind == "html":
-        target = out_path or os.path.join(RENDER_DIR, f"{board_id}.html")
+        target = os.path.join(RENDER_DIR, f"{safe}.html")
         return bk.report(target, board, subtitle=f"board {board_id}")
     if kind == "png":
-        html_path = os.path.join(RENDER_DIR, f"{board_id}.html")
+        html_path = os.path.join(RENDER_DIR, f"{safe}.html")
         bk.report(html_path, board, subtitle=f"board {board_id}")
-        target = out_path or os.path.join(RENDER_DIR, f"{board_id}.png")
+        target = os.path.join(RENDER_DIR, f"{safe}.png")
         # The width is the board's canvas (as before); the HEIGHT is measured in the browser
         # instead of taken from the canvas — a canvas-sized window cut off the bottom of a board
         # whose content reached low (the page adds the title, the toolbar and its own padding).
@@ -2244,8 +2258,9 @@ def _state_db_candidates() -> list[str]:
     from_env = os.environ.get("HERMES_STATE_DB")
     home = os.environ.get("HERMES_HOME") or "~/.hermes"
     candidates = [from_env] if from_env else []
-    candidates += [os.path.join(os.path.expanduser(home), "state.db"),
-                   os.path.expanduser("~/.hermes/state.db")]
+    # Only THIS profile's store: a fallback to ~/.hermes/state.db let a plugin running under any
+    # profile read the default profile's sessions.
+    candidates.append(os.path.join(os.path.expanduser(home), "state.db"))
     return [c for c in dict.fromkeys(candidates) if c and os.path.isfile(c)]
 
 

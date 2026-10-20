@@ -580,6 +580,7 @@ $PY tests/test_api.py     # the HTTP namespace over the real ASGI app (routes, s
 $PY tests/test_vendor.py  # the bundled boardkit works alone and has not drifted from the skill
 $PY tests/test_render.py  # v1.2 shapes, heads and grid, against docs/fixture-v1.2.json
 $PY tests/test_editor.py  # Python renderer ≡ JS editor, element for element (the parity gate)
+$PY tests/test_security.py # no caller-chosen output path, no id traversal, no `</script>` escape
 node tests/pane_smoke.mjs # desktop/plugin.js with stubbed SDK + React: registers, renders, clicks
 hermes plugins validate . # manifest, tool declarations, desktop-surface lint, security scan
 ```
@@ -589,11 +590,11 @@ environment's interpreter (`~/.hermes/installs/*/environments/*/venv/bin/python`
 system `python3` usually has an incomplete FastAPI/pytest install and fails at import.
 
 The PNG checks skip themselves, loudly, on a machine with no Chrome/Chromium: the suite should not
-fail for a reason unrelated to the change. `.github/workflows/tests.yml` runs these five suites plus `node --check vendor/board_editor.js` on every merge
-request and every push to the default branch — `python:3.12-slim` with chromium installed and
-asserted (`command -v chromium`) before the tests, `node:22-alpine` for the pane — and deliberately
-does **not** install Hermes: `hermes plugins validate` / `doctor` stay the local, authoritative
-gates for the manifest and the desktop surface.
+fail for a reason unrelated to the change. `.github/workflows/tests.yml` runs these six suites plus
+`node --check vendor/board_editor.js` on every pull request and every push to `main` — the runner's
+browser is asserted before the tests (a suite that skips its PNG checks would otherwise turn the gate
+green), `node:22` for the pane — and deliberately does **not** install Hermes: `hermes plugins
+validate` / `doctor` stay the local, authoritative gates for the manifest and the desktop surface.
 
 ## Known limits
 
